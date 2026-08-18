@@ -170,8 +170,8 @@ final class SettingsWindow {
         gtk_switch_set_active(
             UnsafeMutableRawPointer(toggle).assumingMemoryBound(to: GtkSwitch.self), value ? 1 : 0)
         gtk_widget_set_valign(toggle, GTK_ALIGN_CENTER)
-        gtkConnect(UnsafeMutableRawPointer(toggle), signal: "notify::active",
-                   box: GtkCallbackBox { [weak self] in
+        gtkConnectNotify(UnsafeMutableRawPointer(toggle), property: "active",
+                         box: GtkCallbackBox { [weak self] in
                        guard let self, !self.isPopulating else { return }
                        let active = gtk_switch_get_active(
                            UnsafeMutableRawPointer(toggle).assumingMemoryBound(to: GtkSwitch.self)) != 0

@@ -104,14 +104,22 @@ final class GtkCallbackBox {
     var opaque: UnsafeMutableRawPointer { Unmanaged.passRetained(self).toOpaque() }
 }
 
-/// Connect one signal. `g_signal_connect` is a C macro and unavailable to Swift, so this calls
-/// the real function underneath it.
+/// Connect a signal whose handler takes **(instance, user_data)** — `clicked`, `activate`,
+/// `changed` and friends.
+///
+/// **The arity has to match the signal exactly.** `g_signal_connect_data` takes an untyped
+/// `GCallback`, so a wrong signature is not a compile error: GLib pushes the real arguments and the
+/// callback reads whichever slot it declared. Using this two-argument helper for a three-argument
+/// signal makes `user_data` resolve to the *second* real argument — for `notify::`, that is the
+/// `GParamSpec` — and the first `swift_retain` on it segfaults. Use `gtkConnectNotify` for
+/// `notify::*` and `gtkConnectDeleteEvent` for `delete-event`.
 @discardableResult
 func gtkConnect(
     _ instance: UnsafeMutableRawPointer,
     signal: String,
     box: GtkCallbackBox
 ) -> gulong {
+    assertSignalArity(instance, signal, expectedParameters: 0)
     let callback: @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> Void = {
         _, data in
         guard let data else { return }
@@ -153,6 +161,63 @@ func gtkConnectDeleteEvent(_ instance: UnsafeMutableRawPointer, box: GtkCallback
         instance, "delete-event",
         unsafeBitCast(callback, to: GCallback.self),
         box.opaque, destroy, GConnectFlags(rawValue: 0))
+}
+
+/// Connect a `notify::<property>` signal, whose handler takes **(object, pspec, user_data)**.
+///
+/// Separate from `gtkConnect` because of the extra `GParamSpec` argument — see the warning there.
+@discardableResult
+func gtkConnectNotify(
+    _ instance: UnsafeMutableRawPointer, property: String, box: GtkCallbackBox
+) -> gulong {
+    assertSignalArity(instance, "notify", expectedParameters: 1)
+    let callback: @convention(c) (
+        UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?
+    ) -> Void = { _, _, data in
+        guard let data else { return }
+        Unmanaged<GtkCallbackBox>.fromOpaque(data).takeUnretainedValue().run()
+    }
+    let destroy: @convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<GClosure>?) -> Void = {
+        data, _ in
+        guard let data else { return }
+        Unmanaged<GtkCallbackBox>.fromOpaque(data).release()
+    }
+    return g_signal_connect_data(
+        instance, "notify::\(property)",
+        unsafeBitCast(callback, to: GCallback.self),
+        box.opaque, destroy, GConnectFlags(rawValue: 0))
+}
+
+/// Check that a signal really carries the number of parameters the chosen helper assumes.
+///
+/// This is the only mechanical defence available. `g_signal_connect_data` takes an untyped
+/// `GCallback`, so attaching a two-argument callback to a three-argument signal compiles cleanly and
+/// then dereferences the wrong stack slot — in the case that prompted this, `notify::active` handed
+/// its `GParamSpec` to code expecting the user-data pointer, and the first `swift_retain` on it
+/// segfaulted. GLib knows each signal's real arity, so ask it instead of trusting the call site.
+///
+/// A trap in debug, a log line in release: the mismatch is a programming error, not a user problem.
+private func assertSignalArity(
+    _ instance: UnsafeMutableRawPointer, _ signal: String, expectedParameters: Int
+) {
+    // Detail suffixes ("notify::active") are not part of the signal name GLib looks up.
+    let name = signal.components(separatedBy: "::").first ?? signal
+    // `G_TYPE_FROM_INSTANCE` is a macro, so the class pointer is read from the struct by hand.
+    let typeInstance = instance.assumingMemoryBound(to: GTypeInstance.self)
+    guard let klass = typeInstance.pointee.g_class else { return }
+    let identifier = g_signal_lookup(name, klass.pointee.g_type)
+    guard identifier != 0 else {
+        AppLog.write("unknown GTK signal '\(name)' — handler will never fire")
+        assertionFailure("unknown GTK signal '\(name)'")
+        return
+    }
+    var query = GSignalQuery()
+    g_signal_query(identifier, &query)
+    guard Int(query.n_params) != expectedParameters else { return }
+    let message = "GTK signal '\(name)' takes \(query.n_params) parameter(s), but this helper "
+        + "assumes \(expectedParameters) — the callback would read the wrong argument and crash"
+    AppLog.write(message)
+    assertionFailure(message)
 }
 
 #endif   // os(Linux)

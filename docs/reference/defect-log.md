@@ -374,3 +374,24 @@ read_when:
   cannot create the `-shm` a checkpointed WAL store needs); Linux's SQLite opens the same file
   without complaint. Narrow the precondition to that platform (`#if os(macOS)`) and check **what the
   test actually guards** — that the reader returns the rows — on both.
+
+## C 콜백 경계 (GTK/GObject)
+
+- **C 콜백은 시그니처가 틀려도 컴파일된다 — 시그널의 실제 인자 수를 코드가 아니라 GLib 에게 물어라.**
+  `g_signal_connect_data` 는 타입 없는 `GCallback` 을 받는다. 그래서 3-인자 시그널
+  (`notify::active` → `(object, pspec, user_data)`)에 2-인자 콜백 `(instance, user_data)` 을 붙여도
+  경고 하나 없이 빌드되고, 콜백은 **두 번째 실제 인자인 `GParamSpec` 을 user_data 로 읽는다.**
+  그 포인터에 `Unmanaged.fromOpaque(...).takeUnretainedValue()` 를 걸면 첫 `swift_retain` 에서
+  SEGV — 설정 창의 스위치를 누르는 순간 앱이 죽었다(실측 스택: `swift_retain` ← 콜백 ←
+  `g_object_notify_by_pspec` ← `gtk_switch_set_active`).
+  타입 시스템이 못 잡는 자리라 **런타임 가드**로 막는다: `g_signal_lookup` + `g_signal_query` 로
+  `n_params` 를 읽어 헬퍼가 가정한 인자 수와 대조한다(`assertSignalArity`). 헬퍼는 시그널 부류별로
+  나눈다 — `gtkConnect`(0개), `gtkConnectNotify`(1개), `gtkConnectDeleteEvent`(1개).
+  실측 확인: clicked/activate/changed = 0, notify::* = 1, delete-event = 1.
+  주입 검증: 2-인자 콜백을 `notify::active` 에 붙인 최소 재현 프로그램은 exit 139(SEGV),
+  3-인자로 고치면 콜백이 정상 실행된다.
+- **UI 툴킷의 조용한 실패는 "빈 화면"으로 나타난다 — 검증할 수 있으면 검증해라.** 같은 부류로,
+  `gtk_label_set_markup` 은 잘못된 Pango 마크업에 **오류를 내지 않고 라벨을 비운다**. `<span class=…>`
+  처럼 Pango 가 모르는 속성 하나로 포켓몬 이름이 통째로 사라졌고, 증상은 "이름이 안 보인다" 뿐이었다.
+  `pango_parse_markup` 은 오류를 돌려주므로 모든 마크업을 그것으로 한 번 걸러 로그+assert 한다.
+

@@ -19,7 +19,8 @@ RELEASE_BIN := $(shell swift build -c release --show-bin-path 2>/dev/null)/$(BIN
 PREFIX ?= $(HOME)/.local
 INSTALL_BIN := $(PREFIX)/bin/poketokenbar
 DESKTOP_FILE := $(PREFIX)/share/applications/poketokenbar.desktop
-ICON_FILE := $(PREFIX)/share/icons/hicolor/512x512/apps/poketokenbar.png
+ICON_DIR := $(PREFIX)/share/icons/hicolor
+ICON_FILE := $(ICON_DIR)/512x512/apps/poketokenbar.png
 
 # The version lives in exactly one place; AppVersion.swift is generated from it.
 VERSION := $(shell grep -oE 'VERSION="[0-9.]+"' scripts/build-app.sh | grep -oE '[0-9.]+')
@@ -95,7 +96,22 @@ ifneq ($(UNAME_S),Linux)
 	@echo "make install is Linux-only — on macOS use 'make app'." >&2; exit 1
 endif
 	install -Dm755 $(RELEASE_BIN) $(INSTALL_BIN)
+	@# Icons: a scalable SVG covers every size a panel might ask for, and raster sizes are
+	@# generated when ImageMagick is available because some loaders prefer PNG. Installing only a
+	@# 512px PNG (as this used to) leaves a task bar wanting 32px to scale a huge bitmap — or, with
+	@# no icon cache, to find nothing at all and draw a blank page.
+	install -Dm644 assets/icon.svg $(ICON_DIR)/scalable/apps/poketokenbar.svg
 	install -Dm644 assets/icon.png $(ICON_FILE)
+	@if command -v magick >/dev/null 2>&1; then \
+	  for size in 16 22 24 32 48 64 128 256; do \
+	    install -d $(ICON_DIR)/$${size}x$${size}/apps; \
+	    magick assets/icon_1024.png -resize $${size}x$${size} \
+	      $(ICON_DIR)/$${size}x$${size}/apps/poketokenbar.png; \
+	  done; \
+	  echo "  rendered raster icon sizes 16-256"; \
+	else \
+	  echo "  note: ImageMagick not found — installed SVG + 512px PNG only"; \
+	fi
 	@# StartupWMClass ties the window (app id "poketokenbar") to this entry, which is what gives
 	@# the task bar its icon and name. The app is listed normally: it has real windows now, so
 	@# hiding it with NoDisplay would only make it unlaunchable from the menu.
@@ -111,6 +127,14 @@ endif
 	  'StartupWMClass=poketokenbar' \
 	  'X-GNOME-Autostart-enabled=true' \
 	  > $(DESKTOP_FILE)
+	@# On Wayland a client cannot set its own window icon — there is no protocol for it. The
+	@# compositor resolves it from the window's app_id to this .desktop file, so the entry has to be
+	@# indexed before the task bar can show anything but a blank page.
+	@command -v update-desktop-database >/dev/null 2>&1 && \
+	  update-desktop-database $(PREFIX)/share/applications || true
+	@command -v gtk-update-icon-cache >/dev/null 2>&1 && \
+	  gtk-update-icon-cache -q -f -t $(ICON_DIR) 2>/dev/null || true
+	@command -v kbuildsycoca6 >/dev/null 2>&1 && kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
 	@echo
 	@echo "installed: $(INSTALL_BIN)"
 	@case ":$$PATH:" in *":$(PREFIX)/bin:"*) ;; \
@@ -120,6 +144,8 @@ endif
 uninstall:   ## Remove everything 'make install' wrote, and any autostart unit
 	-@$(MAKE) --no-print-directory autostart-disable 2>/dev/null || true
 	rm -f $(INSTALL_BIN) $(DESKTOP_FILE) $(ICON_FILE)
+	rm -f $(ICON_DIR)/scalable/apps/poketokenbar.svg
+	rm -f $(ICON_DIR)/*/apps/poketokenbar.png
 	rm -f $(HOME)/.config/systemd/user/poketokenbar.service
 	@systemctl --user daemon-reload 2>/dev/null || true
 	@echo "uninstalled (data in ~/.local/share/PokeTokenBar was kept — delete it by hand to reset)"
