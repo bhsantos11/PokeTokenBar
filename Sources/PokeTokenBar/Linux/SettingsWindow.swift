@@ -96,6 +96,11 @@ final class SettingsWindow {
                 self.store.floatingPetEnabled = $0
                 self.onFloatingPetChange?()
             }
+            self.slider(box, l.floatingPetSizeLabel, value: self.store.floatingPetSize,
+                        range: 48...192, step: 8, format: { "\(Int($0))px" }) {
+                self.store.floatingPetSize = $0
+                self.onFloatingPetChange?()   // resize the pet as the slider moves
+            }
             self.toggle(box, l.floatingPetBubbleAlertsLabel, self.store.floatingPetBubbleAlerts) {
                 self.store.floatingPetBubbleAlerts = $0
             }
@@ -104,6 +109,14 @@ final class SettingsWindow {
         section(l.notificationsSection) { box in
             self.toggle(box, l.limitNotificationsLabel, self.store.limitNotifications) {
                 self.store.limitNotifications = $0
+            }
+            self.slider(box, l.warning, value: self.store.warnThreshold,
+                        range: 50...95, step: 5, format: TokenFormatter.percent) {
+                self.store.warnThreshold = $0
+            }
+            self.slider(box, l.critical, value: self.store.critThreshold,
+                        range: 80...100, step: 5, format: TokenFormatter.percent) {
+                self.store.critThreshold = $0
             }
             self.toggle(box, l.companionNotificationsLabel, self.store.companionNotifications) {
                 self.store.companionNotifications = $0
@@ -116,6 +129,22 @@ final class SettingsWindow {
         section(l.updateSectionTitle) { box in
             self.toggle(box, l.updateNotificationsLabel, self.store.updateNotificationsEnabled) {
                 self.store.updateNotificationsEnabled = $0
+            }
+        }
+
+        section(l.advancedSectionTitle) { box in
+            self.toggle(box, l.disableKeychain, self.store.disableKeychainAccess) {
+                self.store.disableKeychainAccess = $0
+            }
+            // Say plainly that this does nothing here. The setting is shared with macOS and is
+            // honoured by the same code, but Linux reads credentials from a file and never touches
+            // a Keychain — a switch that silently changes nothing is worse than an explained one.
+            let note = Gtk.label(
+                "<span size='small'>\(Gtk.escape(l.disableKeychainLinuxNote))</span>", wrap: true)
+            Gtk.addClass(note, "ptb-muted")
+            Gtk.pack(box, note)
+            self.button(box, l.refreshLimitToken) { [weak self] in
+                Task { @MainActor in await self?.store.refreshLimitTokenFromKeychain() }
             }
         }
 
@@ -200,6 +229,40 @@ final class SettingsWindow {
                        onChange(Int(index))
                    })
         Gtk.pack(container, combo)
+    }
+
+    /// A labelled slider with its current value shown, matching the macOS rows.
+    ///
+    /// `format` renders the value beside the slider — without it a slider is a guess, and these
+    /// control thresholds where the exact number is the whole point.
+    private func slider(
+        _ parent: Widget, _ title: String, value: Double, range: ClosedRange<Double>, step: Double,
+        format: @escaping (Double) -> String, _ onChange: @escaping (Double) -> Void
+    ) {
+        let container = row(parent, title)
+        let scale = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, range.lowerBound,
+                                             range.upperBound, step)!
+        let scaleRef = UnsafeMutableRawPointer(scale).assumingMemoryBound(to: GtkScale.self)
+        gtk_range_set_value(UnsafeMutableRawPointer(scale).assumingMemoryBound(to: GtkRange.self), value)
+        gtk_scale_set_draw_value(scaleRef, 0)   // the value is rendered as text beside it instead
+        gtk_widget_set_size_request(scale, 140, -1)
+        gtk_widget_set_valign(scale, GTK_ALIGN_CENTER)
+
+        let readout = Gtk.label("<span size='small'>\(Gtk.escape(format(value)))</span>")
+        Gtk.addClass(readout, "ptb-muted")
+        gtk_widget_set_valign(readout, GTK_ALIGN_CENTER)
+        gtk_widget_set_size_request(readout, 44, -1)
+
+        gtkConnect(UnsafeMutableRawPointer(scale), signal: "value-changed",
+                   box: GtkCallbackBox { [weak self] in
+                       guard let self, !self.isPopulating else { return }
+                       let current = gtk_range_get_value(
+                           UnsafeMutableRawPointer(scale).assumingMemoryBound(to: GtkRange.self))
+                       Gtk.setMarkup(readout, "<span size='small'>\(Gtk.escape(format(current)))</span>")
+                       onChange(current)
+                   })
+        Gtk.pack(container, scale)
+        Gtk.pack(container, readout)
     }
 
     private func button(_ parent: Widget, _ title: String, _ action: @escaping () -> Void) {

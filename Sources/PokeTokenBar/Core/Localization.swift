@@ -151,6 +151,16 @@ struct L {
 
     var disableKeychain: String { t("Keychain 접근 끄기", "Disable Keychain access", "Keychainアクセスを無効化", "Desactivar acceso a Keychain") }
     var disableKeychainHint: String { t("켜면 Keychain 접근 허용 팝업이 더 안 뜹니다 — 공식 한도(%)만 숨겨지고 토큰·비용은 그대로", "When on, no more Keychain permission pop-ups — only official limits (%) are hidden; tokens/cost stay", "オンにするとKeychain許可のポップアップが出なくなります — 公式上限(%)のみ非表示、トークン・費用はそのまま", "Al activarlo, ya no aparecerán los avisos de permiso de Keychain — solo se ocultan los límites oficiales (%), los tokens y el coste se mantienen") }
+    /// Shown under the Keychain toggle on Linux, where there is no Keychain at all — the app reads
+    /// `~/.claude/.credentials.json` directly. The setting still exists and is still honoured by the
+    /// shared code, so saying so beats a switch that appears to do nothing.
+    var disableKeychainLinuxNote: String {
+        t("Linux 에는 Keychain 이 없어 이 설정은 동작에 영향이 없습니다 — 자격증명은 ~/.claude/.credentials.json 에서 읽습니다.",
+          "Linux has no Keychain, so this setting changes nothing here — credentials are read from ~/.claude/.credentials.json.",
+          "Linux には Keychain がないため、この設定は動作に影響しません — 認証情報は ~/.claude/.credentials.json から読み取ります。",
+          "Linux no tiene Keychain, así que este ajuste no cambia nada aquí — las credenciales se leen de ~/.claude/.credentials.json.")
+    }
+
     var refreshLimitToken: String { t("한도 토큰 캐시 갱신", "Refresh limit token cache", "上限トークンキャッシュを更新", "Actualizar caché del token de límite") }
     var onlyOnPress: String { t("누를 때만 Keychain 을 읽어요 — 자동 폴링은 안 읽어 팝업이 안 떠요. 토큰 만료 후 이 버튼으로 한도 갱신", "Reads Keychain only when pressed — auto-polling never does, so no pop-ups. Refresh limits here after the token expires", "押した時のみKeychainを読みます — 自動更新では読まずポップアップも出ません。トークン期限切れ後はこのボタンで上限を更新", "Solo lee Keychain al pulsar — el sondeo automático nunca lo hace, así que no aparecen avisos. Usa este botón para actualizar los límites tras la expiración del token") }
     var launchAtLogin: String { t("로그인 시 자동 시작", "Launch at login", "ログイン時に自動起動", "Iniciar al arrancar sesión") }

@@ -178,13 +178,14 @@ data are the same code as macOS.
 
 **What doesn't, yet:**
 
-| Gap | Why |
-|---|---|
-| Floating pet can't be dragged or remember its position | Wayland denies clients their own surface position — place it with a KWin window rule |
-| The window doesn't anchor to the tray icon or close on focus-out | Same reason: no way to position a surface next to a panel item |
-| Save export / import | Needs a GTK file chooser (macOS Settings has it) |
-| Pokédex detail view and catch log | Collection shows the grid and rarity counts only |
-| In-app update / Homebrew cask | Linux install method is unknown to the app, so it opens the release page instead |
+Two are permanent, because Wayland forbids them: the floating pet cannot be dragged or remember its
+position, and the window cannot anchor to the tray icon or close on focus-out — a client is not
+allowed to know or set its own surface position. Place the pet with a KWin window rule.
+
+The rest are simply not built yet, and are tracked in [ROADMAP.md](ROADMAP.md): limit reset
+countdowns, the burn-rate forecast, the species Pokédex with paging, the catch log, the floating
+pet's hover callout / right-click menu / speech-bubble alerts, the pet size and warning-threshold
+sliders, the Keychain opt-out, the in-app update check, and save export/import.
 
 ## Data sources
 

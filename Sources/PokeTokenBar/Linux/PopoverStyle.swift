@@ -41,6 +41,10 @@ enum PopoverStyle {
         /* Evolution line: the current stage is ringed, later stages are faded back. */
         .ptb-stage-current { border: 2px solid @theme_selected_bg_color; border-radius: 6px; }
         .ptb-stage-future  { opacity: 0.35; }
+        /* Provider incidents. Amber for degraded, red for a real outage — same reading as the
+           limit meters, so colour means one thing across the window. */
+        .ptb-status-minor { background-color: alpha(#ff9f0a, 0.20); border: 1px solid #ff9f0a; }
+        .ptb-status-major { background-color: alpha(#ff453a, 0.20); border: 1px solid #ff453a; }
         .ptb-chip-on {
           background-color: @theme_selected_bg_color;
           color: @theme_selected_fg_color;

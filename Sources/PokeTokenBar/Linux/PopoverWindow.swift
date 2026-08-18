@@ -491,6 +491,7 @@ final class PopoverWindow {
     private func buildHome(into page: Widget) {
         let l = companion.l
         if let celebration = activeCelebration { Gtk.pack(page, celebrationBanner(celebration)) }
+        for banner in providerStatusBanners() { Gtk.pack(page, banner) }
         Gtk.pack(page, companionCard(l))
         Gtk.pack(page, totalsCard(l))
         if let line = evolutionLine() { Gtk.pack(page, line) }
@@ -555,6 +556,28 @@ final class PopoverWindow {
 
         Gtk.pack(card, text, expand: true)
         return card
+    }
+
+    /// A row per provider currently reporting an incident.
+    ///
+    /// Only degraded providers appear (`hasIssue`): a green "all fine" row would take space in the
+    /// one place the user came to read numbers. The provider's own wording is shown rather than a
+    /// paraphrase, because it is the authoritative description of what is broken.
+    private func providerStatusBanners() -> [Widget] {
+        store.statuses
+            .filter { $0.value.indicator.hasIssue }
+            .sorted { $0.key < $1.key }
+            .map { providerID, status in
+                let name = store.snapshots.first { $0.providerID == providerID }?.displayName
+                    ?? providerID
+                let banner = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 2)
+                Gtk.addClass(banner, "ptb-card")
+                Gtk.addClass(banner, status.indicator == .minor ? "ptb-status-minor" : "ptb-status-major")
+                Gtk.pack(banner, Gtk.label("<b>\(Gtk.escape(name))</b>"))
+                Gtk.pack(banner, Gtk.label(
+                    "<span size='small'>\(Gtk.escape(status.description))</span>", wrap: true))
+                return banner
+            }
     }
 
     /// The evolution line: what this companion has been, is, and can still become.
@@ -695,7 +718,8 @@ final class PopoverWindow {
         return card
     }
 
-    /// The official Claude limit windows with their reset countdowns.
+    /// The official Claude limit windows.
+    /// Utilisation only for now — reset countdowns are still to build (see ROADMAP.md).
     private func limitsCard(_ l: L, _ limits: LimitStatus) -> Widget {
         let card = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 8)
         Gtk.addClass(card, "ptb-card")
@@ -713,15 +737,41 @@ final class PopoverWindow {
             // A window with no utilisation has not been reported by the API — showing an empty
             // meter would read as "0% used", which is the opposite of "unknown".
             guard let window, let utilization = window.utilization else { continue }
-            Gtk.pack(card, limitRow(title, utilization))
+            Gtk.pack(card, limitRow(title, utilization, resetsAt: window.resetDate))
         }
+        if let forecast = forecastLine(l) { Gtk.pack(card, forecast) }
         return card
     }
 
-    private func limitRow(_ title: String, _ utilization: Double) -> Widget {
+    /// "At current rate, limit hit at 14:32" — or that it will not be reached before the reset.
+    ///
+    /// `UsageStore.fiveHourForecast` already decides both, including refusing to extrapolate from a
+    /// burn rate too low to be meaningful, so this only renders the answer.
+    private func forecastLine(_ l: L) -> Widget? {
+        guard let forecast = store.fiveHourForecast else { return nil }
+        let text = forecast.beforeReset
+            ? l.forecastReach(RelativeTime.clockTime(forecast.depletionDate,
+                                                     locale: companion.language.displayLocale))
+            : l.forecastNoReach
+        let label = Gtk.label("<span size='small'>\(Gtk.escape(text))</span>", wrap: true)
+        Gtk.addClass(label, "ptb-muted")
+        return label
+    }
+
+    private func limitRow(_ title: String, _ utilization: Double, resetsAt: Date?) -> Widget {
+        let l = companion.l
         let row = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 3)
         let heading = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 8)
         Gtk.pack(heading, Gtk.label("<span size='small'>\(Gtk.escape(title))</span>"))
+
+        // How long the window still has. Hidden once it has passed rather than shown as a negative;
+        // the next refresh brings the new window anyway.
+        if let resetsAt, let countdown = RelativeTime.remaining(until: resetsAt) {
+            let reset = Gtk.label(
+                "<span size='small'>\(Gtk.escape(l.reset)) \(Gtk.escape(countdown))</span>")
+            Gtk.addClass(reset, "ptb-muted")
+            Gtk.pack(heading, reset)
+        }
 
         let percent = Gtk.label(
             "<span size='small'><b>\(Gtk.escape(TokenFormatter.percent(utilization)))</b></span>")
