@@ -18,6 +18,13 @@ cd "$(dirname "$0")/.."
 
 THRESHOLD="${THRESHOLD:-75}"
 
+# Quiet SwiftPM's transitive -pthread warning here too: this script is run directly as often as it
+# is run through `make test-gate`, and only make exports the shim path.
+if [[ -x scripts/pkgconfig-shim.sh ]]; then
+  SHIM="$(scripts/pkgconfig-shim.sh 2>/dev/null || true)"
+  [[ -n "$SHIM" ]] && export PKG_CONFIG_PATH="$SHIM:${PKG_CONFIG_PATH:-}"
+fi
+
 LOGIC_CORE=(
   "Sources/PokeTokenBar/Core/CompanionModel.swift"
   "Sources/PokeTokenBar/Core/CompanionStore.swift"

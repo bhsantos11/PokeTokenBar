@@ -18,9 +18,12 @@ final class SettingsWindow {
     /// fight the value being restored.
     private var isPopulating = false
 
-    init(store: UsageStore, companion: CompanionStore) {
+    private let updater: UpdateChecker
+
+    init(store: UsageStore, companion: CompanionStore, updater: UpdateChecker) {
         self.store = store
         self.companion = companion
+        self.updater = updater
 
         window = gtk_window_new(GTK_WINDOW_TOPLEVEL)!
         gtk_window_set_title(asWindow(window), "PokeTokenBar — Settings")
@@ -130,6 +133,37 @@ final class SettingsWindow {
             self.toggle(box, l.updateNotificationsLabel, self.store.updateNotificationsEnabled) {
                 self.store.updateNotificationsEnabled = $0
             }
+            let status = self.row(box, l.checkForUpdatesLabel)
+            // State goes in a label rather than a dialog: a check is cheap and usually says
+            // "nothing new", which does not deserve interrupting the user.
+            let result = Gtk.label("<span size='small'>\(Gtk.escape(self.updateStatusText(l)))</span>",
+                                   wrap: true)
+            Gtk.addClass(result, "ptb-muted")
+            gtk_widget_set_valign(result, GTK_ALIGN_CENTER)
+            Gtk.pack(status, result)
+
+            let check = gtk_button_new_with_label(l.checkNowButton)!
+            gtk_widget_set_valign(check, GTK_ALIGN_CENTER)
+            gtkConnect(UnsafeMutableRawPointer(check), signal: "clicked",
+                       box: GtkCallbackBox { [weak self] in
+                           guard let self else { return }
+                           Task { @MainActor in
+                               // minInterval 0: an explicit press must actually check, not be
+                               // swallowed by the 30-minute poll guard.
+                               await self.updater.check(minInterval: 0)
+                               self.rebuild()
+                               gtk_widget_show_all(self.window)
+                           }
+                       })
+            Gtk.pack(status, check)
+
+            // Opening the release page is the whole action on Linux — the app cannot know how it
+            // was installed (distro package, manual build), and guessing wrong damages the install.
+            if let available = self.updater.available {
+                self.button(box, "\(l.updateButton) \(available.version)") {
+                    if let url = URL(string: available.url) { PlatformOpener.open(url) }
+                }
+            }
         }
 
         section(l.advancedSectionTitle) { box in
@@ -148,6 +182,18 @@ final class SettingsWindow {
             }
         }
 
+        section(l.transferSectionTitle) { box in
+            let exportHint = Gtk.label("<span size='small'>\(Gtk.escape(l.exportSaveHint))</span>", wrap: true)
+            Gtk.addClass(exportHint, "ptb-muted")
+            Gtk.pack(box, exportHint)
+            self.button(box, l.exportSaveButton) { [weak self] in self?.exportSave(l) }
+
+            let importHint = Gtk.label("<span size='small'>\(Gtk.escape(l.importSaveHint))</span>", wrap: true)
+            Gtk.addClass(importHint, "ptb-muted")
+            Gtk.pack(box, importHint)
+            self.button(box, l.importSaveButton) { [weak self] in self?.importSave(l) }
+        }
+
         section(l.aboutSupportSectionTitle) { box in
             let version = Gtk.label("<span size='small'>PokeTokenBar \(Gtk.escape(AppVersion.current))</span>")
             Gtk.addClass(version, "ptb-muted")
@@ -163,6 +209,115 @@ final class SettingsWindow {
                 }
             }
         }
+    }
+
+    private func updateStatusText(_ l: L) -> String {
+        if let available = updater.available { return l.updateFound(available.version) }
+        return l.upToDate(AppVersion.current)
+    }
+
+    // MARK: save transfer
+
+    private func exportSave(_ l: L) {
+        guard let url = chooseFile(title: l.exportSaveLabel, saving: true,
+                                   suggestedName: companion.suggestedExportFileName) else { return }
+        do {
+            let data = try companion.exportedSaveData(
+                appVersion: AppVersion.current, deviceName: ProcessInfo.processInfo.hostName)
+            try data.write(to: url, options: .atomic)
+            PlatformOpener.reveal(url)
+        } catch {
+            alert(title: l.exportSaveLabel, body: error.localizedDescription)
+        }
+    }
+
+    /// Import is deliberately a five-step gauntlet, mirroring macOS.
+    ///
+    /// `CompanionState` decodes leniently — every field has a default — so *any* JSON would decode
+    /// "successfully" into an empty state and silently wipe the user's dex. `SaveTransfer.decode`
+    /// is what refuses a file that is not ours, and it must be the only way in.
+    private func importSave(_ l: L) {
+        guard let url = chooseFile(title: l.importSaveLabel, saving: false, suggestedName: nil) else { return }
+        let envelope: SaveEnvelope
+        do {
+            envelope = try SaveTransfer.decode(try Data(contentsOf: url))
+        } catch {
+            alert(title: l.importSaveLabel, body: l.importErrorMessage(error))
+            return
+        }
+
+        let incoming = SaveSummary(state: envelope.state)
+        let current = companion.transferSummary
+        let formatter = DateFormatter()
+        formatter.locale = companion.language.displayLocale
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        let body = l.importConfirmBody(
+            incomingDex: incoming.dexCount,
+            incomingTokens: TokenFormatter.compact(incoming.lifetimeTokens),
+            exportedAt: formatter.string(from: envelope.exportedAt),
+            sourceDevice: envelope.sourceDevice,
+            currentDex: current.dexCount,
+            currentTokens: TokenFormatter.compact(current.lifetimeTokens))
+        // Replace is destructive and irreversible from the UI, so Cancel is the default action —
+        // the same choice `ImportConfirmPolicy` encodes for macOS.
+        guard confirm(title: l.importConfirmTitle, body: body, confirmLabel: l.importSaveButton) else { return }
+
+        do {
+            try companion.applySave(
+                envelope,
+                todayTokensByProvider: store.todayTokensByProvider,
+                todayDate: LocalUsageReader.todayKey(),
+                hasUsageData: store.hasUsageData)
+            alert(title: l.importSaveLabel,
+                  body: l.importSaveDone(dex: incoming.dexCount,
+                                         tokens: TokenFormatter.compact(incoming.lifetimeTokens)),
+                  warning: false)
+        } catch {
+            alert(title: l.importSaveLabel, body: l.importErrorMessage(error))
+        }
+    }
+
+    /// A modal file chooser. Returns nil when the user cancels — which must do nothing at all.
+    private func chooseFile(title: String, saving: Bool, suggestedName: String?) -> URL? {
+        let action = saving ? GTK_FILE_CHOOSER_ACTION_SAVE : GTK_FILE_CHOOSER_ACTION_OPEN
+        guard let dialog = ptb_file_chooser_dialog(
+            title, asWindow(window), action, "gtk-cancel", saving ? "gtk-save" : "gtk-open")
+        else { return nil }
+        defer { gtk_widget_destroy(dialog) }
+        if let suggestedName { ptb_chooser_set_current_name(dialog, suggestedName) }
+        if saving { ptb_chooser_confirm_overwrite(dialog, 1) }
+
+        guard ptb_dialog_run(dialog) == ptb_response_accept(),
+              let path = ptb_chooser_filename(dialog) else { return nil }
+        defer { g_free(path) }
+        return URL(fileURLWithPath: String(cString: path))
+    }
+
+    private func alert(title: String, body: String, warning: Bool = true) {
+        guard let dialog = ptb_message_dialog(
+            asWindow(window), warning ? GTK_MESSAGE_WARNING : GTK_MESSAGE_INFO,
+            GTK_BUTTONS_OK, body) else { return }
+        defer { gtk_widget_destroy(dialog) }
+        gtk_window_set_title(asWindow(dialog), title)
+        _ = ptb_dialog_run(dialog)
+    }
+
+    private func confirm(title: String, body: String, confirmLabel: String) -> Bool {
+        guard let dialog = ptb_message_dialog(
+            asWindow(window), GTK_MESSAGE_WARNING, GTK_BUTTONS_NONE, body) else { return false }
+        defer { gtk_widget_destroy(dialog) }
+        gtk_window_set_title(asWindow(dialog), title)
+        _ = ptb_dialog_add_button(dialog, confirmLabel, ptb_response_accept())
+        let cancel = ptb_dialog_add_button(dialog, "gtk-cancel", ptb_response_cancel())
+        // Cancel is the default action: Return must never replace a save. macOS encodes the same
+        // choice in `ImportConfirmPolicy.keyEquivalent(forButtonAt:)`.
+        if let cancel {
+            gtk_widget_set_can_default(cancel, 1)
+            gtk_widget_grab_default(cancel)
+            gtk_widget_grab_focus(cancel)
+        }
+        return ptb_dialog_run(dialog) == ptb_response_accept()
     }
 
     /// Called after the language changes, so the tray and popover relabel too.

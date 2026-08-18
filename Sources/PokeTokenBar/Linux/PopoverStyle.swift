@@ -45,6 +45,8 @@ enum PopoverStyle {
            limit meters, so colour means one thing across the window. */
         .ptb-status-minor { background-color: alpha(#ff9f0a, 0.20); border: 1px solid #ff9f0a; }
         .ptb-status-major { background-color: alpha(#ff453a, 0.20); border: 1px solid #ff453a; }
+        /* The pet's alert bubble: a small floating card, tighter than the popover's. */
+        .ptb-bubble { padding: 6px 8px; border-radius: 8px; }
         .ptb-chip-on {
           background-color: @theme_selected_bg_color;
           color: @theme_selected_fg_color;

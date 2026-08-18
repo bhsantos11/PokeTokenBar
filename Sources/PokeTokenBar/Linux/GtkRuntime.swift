@@ -188,6 +188,33 @@ func gtkConnectNotify(
         box.opaque, destroy, GConnectFlags(rawValue: 0))
 }
 
+/// Connect a right-click on a widget, whose handler takes **(widget, event, user_data)**.
+///
+/// Only the secondary button fires the box; primary clicks return FALSE so they continue to the
+/// widget's own `clicked` handler. Swallowing them here would make the pet unclickable.
+@discardableResult
+func gtkConnectSecondaryClick(_ instance: UnsafeMutableRawPointer, box: GtkCallbackBox) -> gulong {
+    assertSignalArity(instance, "button-press-event", expectedParameters: 1)
+    let callback: @convention(c) (
+        UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?
+    ) -> gboolean = { _, event, data in
+        guard let data, let event else { return 0 }
+        let click = event.assumingMemoryBound(to: GdkEventButton.self).pointee
+        guard click.button == 3 else { return 0 }   // GDK_BUTTON_SECONDARY
+        Unmanaged<GtkCallbackBox>.fromOpaque(data).takeUnretainedValue().run()
+        return 1
+    }
+    let destroy: @convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<GClosure>?) -> Void = {
+        data, _ in
+        guard let data else { return }
+        Unmanaged<GtkCallbackBox>.fromOpaque(data).release()
+    }
+    return g_signal_connect_data(
+        instance, "button-press-event",
+        unsafeBitCast(callback, to: GCallback.self),
+        box.opaque, destroy, GConnectFlags(rawValue: 0))
+}
+
 /// Check that a signal really carries the number of parameters the chosen helper assumes.
 ///
 /// This is the only mechanical defence available. `g_signal_connect_data` takes an untyped

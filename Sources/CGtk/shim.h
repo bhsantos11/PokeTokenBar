@@ -57,3 +57,47 @@ static inline gboolean ptb_animation_iter_advance(GdkPixbufAnimationIter *iter, 
 }
 
 #pragma GCC diagnostic pop
+
+/* GTK's dialog constructors are variadic and its "interfaces" (GtkFileChooser) are reached through
+   cast macros — neither crosses into Swift. These wrappers keep the varargs and the casting on the
+   C side, which is also where GTK expects them. */
+
+static inline GtkWidget *ptb_file_chooser_dialog(
+    const char *title, GtkWindow *parent, GtkFileChooserAction action,
+    const char *cancel_label, const char *accept_label) {
+    return gtk_file_chooser_dialog_new(title, parent, action,
+                                       cancel_label, GTK_RESPONSE_CANCEL,
+                                       accept_label, GTK_RESPONSE_ACCEPT,
+                                       NULL);
+}
+
+static inline void ptb_chooser_set_current_name(GtkWidget *dialog, const char *name) {
+    gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(dialog), name);
+}
+
+static inline void ptb_chooser_confirm_overwrite(GtkWidget *dialog, gboolean confirm) {
+    gtk_file_chooser_set_do_overwrite_confirmation(GTK_FILE_CHOOSER(dialog), confirm);
+}
+
+/* Caller frees with g_free. */
+static inline char *ptb_chooser_filename(GtkWidget *dialog) {
+    return gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
+}
+
+/* "%s" rather than passing `text` as the format string — a save path or an error message can
+   contain a percent sign, and feeding it to printf would read past the arguments. */
+static inline GtkWidget *ptb_message_dialog(
+    GtkWindow *parent, GtkMessageType type, GtkButtonsType buttons, const char *text) {
+    return gtk_message_dialog_new(parent, GTK_DIALOG_MODAL, type, buttons, "%s", text);
+}
+
+static inline int ptb_dialog_run(GtkWidget *dialog) {
+    return gtk_dialog_run(GTK_DIALOG(dialog));
+}
+
+static inline GtkWidget *ptb_dialog_add_button(GtkWidget *dialog, const char *label, int response) {
+    return gtk_dialog_add_button(GTK_DIALOG(dialog), label, response);
+}
+
+static inline int ptb_response_accept(void) { return GTK_RESPONSE_ACCEPT; }
+static inline int ptb_response_cancel(void) { return GTK_RESPONSE_CANCEL; }

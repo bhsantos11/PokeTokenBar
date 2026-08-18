@@ -93,6 +93,7 @@ final class App {
 
     private let store = UsageStore()
     private let companion = CompanionStore()
+    private let updater = UpdateChecker()
     private var tray: TrayIndicator?
     private var popover: PopoverWindow?
     private var settings: SettingsWindow?
@@ -121,15 +122,23 @@ final class App {
         let l = L(companion.language)
         PopoverStyle.install()
         popover = PopoverWindow(store: store, companion: companion, onClose: {})
-        let settingsWindow = SettingsWindow(store: store, companion: companion)
+        let settingsWindow = SettingsWindow(store: store, companion: companion, updater: updater)
         settingsWindow.onLanguageChange = { [weak self] in self?.relabel() }
         settingsWindow.onFloatingPetChange = { [weak self] in self?.syncFloatingPet() }
         settings = settingsWindow
-        pet = FloatingPetWindow(store: store, companion: companion) { [weak self] in
-            self?.popover?.show()
-            guard let self else { return }
-            Task { @MainActor in await self.popover?.loadSpritesAndRefresh() }
-        }
+        pet = FloatingPetWindow(
+            store: store, companion: companion,
+            onActivate: { [weak self] in
+                guard let self else { return }
+                self.popover?.show()
+                Task { @MainActor in await self.popover?.loadSpritesAndRefresh() }
+            },
+            onSettings: { [weak self] in self?.settings?.show() },
+            onQuit: {
+                CrashReporter.markClean()
+                AppLog.flush()
+                exit(0)
+            })
         let tray = TrayIndicator(
             id: "poketokenbar", iconThemePath: iconDirectory.path, iconName: "applications-games",
             summaryPlaceholder: l.loading)
@@ -171,6 +180,8 @@ final class App {
             popover?.show()
             if let tab { popover?.select(tab) }
         }
+        // One check at startup, as macOS does; Settings offers an explicit re-check.
+        Task { @MainActor in await updater.check() }
         Task { @MainActor in await refresh() }
         schedulePolling()
     }
@@ -189,6 +200,7 @@ final class App {
                 data = await SpriteStore.shared.eggData()
             }
             pet?.update(spriteData: data, key: key)
+            pet?.syncCopy()
         }
     }
 

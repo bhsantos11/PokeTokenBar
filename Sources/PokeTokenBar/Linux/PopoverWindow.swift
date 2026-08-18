@@ -502,19 +502,30 @@ final class PopoverWindow {
         }
     }
 
-    /// Rarity capsules with counts. Tapping the active one clears the filter, as on macOS.
+    /// Rarest first, as macOS orders them — deliberately not the enum's declaration order.
+    private static let rarityDisplayOrder: [Rarity] = [.legendary, .rare, .uncommon, .common]
+
+    /// Rarity capsules with counts. Tapping the active one clears the filter (`l.dexFilterHint`).
+    ///
+    /// The counts differ by view and that is intentional: the Pokédex counts **species**, the catch
+    /// log counts **individuals** (`dexCount`). Using one for both would make the capsules disagree
+    /// with the list they filter.
     private func rarityFilterRow(_ l: L) -> Widget {
         let row = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 6)
         gtk_widget_set_halign(row, GTK_ALIGN_CENTER)
-        for rarity in [Rarity.common, .uncommon, .rare, .legendary] {
-            let count = companion.dexCount(rarity)
-            guard count > 0 else { continue }
+        let species = companion.dexSpecies
+        for rarity in Self.rarityDisplayOrder {
+            let count = collectionMode == .dex
+                ? species.filter { $0.rarity == rarity }.count
+                : companion.dexCount(rarity)
             let button = gtk_button_new_with_label("\(l.rarityLabel(rarity))  \(count)")!
             Gtk.addClass(button, "ptb-chip")
             if rarityFilter == rarity { Gtk.addClass(button, "ptb-chip-on") }
             gtk_button_set_relief(
                 UnsafeMutableRawPointer(button).assumingMemoryBound(to: GtkButton.self), GTK_RELIEF_NONE)
             gtk_widget_set_tooltip_text(button, l.dexFilterHint)
+            // Kept visible but disabled at zero, so the row does not reflow as the dex fills up.
+            gtk_widget_set_sensitive(button, count > 0 ? 1 : 0)
             gtkConnect(UnsafeMutableRawPointer(button), signal: "clicked",
                        box: GtkCallbackBox { [weak self] in
                            guard let self else { return }
@@ -537,7 +548,8 @@ final class PopoverWindow {
         let start = dexPage * Self.dexPageSize
         let visible = Array(species[start..<min(start + Self.dexPageSize, species.count)])
 
-        let total = Gtk.label("<span size='small'>\(Gtk.escape(l.dexSpeciesTotal(species.count)))</span>",
+        // Unfiltered on purpose: the filtered count is already on the active capsule.
+        let total = Gtk.label("<span size='small'>\(Gtk.escape(l.dexSpeciesTotal(all.count)))</span>",
                               align: GTK_ALIGN_CENTER)
         Gtk.addClass(total, "ptb-muted")
         Gtk.pack(page, total)
@@ -602,7 +614,8 @@ final class PopoverWindow {
     private func buildCatchLog(into page: Widget, _ l: L) {
         let all = companion.dexEntriesSorted
         let entries = rarityFilter.map { r in all.filter { $0.rarity == r } } ?? all
-        let total = Gtk.label("<span size='small'>\(Gtk.escape(l.dexTotal(entries.count)))</span>",
+        // Unfiltered, matching the species dex above.
+        let total = Gtk.label("<span size='small'>\(Gtk.escape(l.dexTotal(all.count)))</span>",
                               align: GTK_ALIGN_CENTER)
         Gtk.addClass(total, "ptb-muted")
         Gtk.pack(page, total)

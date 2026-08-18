@@ -41,22 +41,36 @@ Today's Collection tab is a flat grid of individuals capped at 60. macOS has two
       line names resolved once and cached, so rebuilds do not refetch
 - [x] Segmented control to switch dex ↔ catch log
 
-### Phase 4 — The floating pet, fully
-- [ ] **Hover callout** with today's usage (`FloatingPetController.hoverTooltip` is pure — move it
-      to Core rather than reimplementing it)
-- [ ] **Right-click menu** (open, settings, hide, quit)
-- [ ] **Speech-bubble limit alerts** above the pet (`store.currentBubbleAlert`,
-      `floatingPetBubbleAlerts`), reusing the Core copy-length guard that stops truncation
+### Phase 4 — The floating pet, fully  ⚠️ built, interaction unverified
+- [x] **Hover callout** — `hoverTooltip` moved to `Core/FloatingPetCopy` (4 tests, now running on
+      both platforms); macOS keeps a forwarder so its own tests are untouched
+- [x] **Right-click menu** (open, settings, hide, quit) — secondary button only, so primary
+      clicks still reach the pet's `clicked` handler
+- [x] **Speech-bubble limit alerts** above the pet, mirroring `store.currentBubbleAlert`; the
+      store owns the 6s TTL so the UI runs no timer of its own
 
-### Phase 5 — Housekeeping the app owes the user
-- [ ] **Update check** in Settings — `UpdateChecker` already runs; surface it and the available
-      version, opening the release page (Linux has no self-apply path)
-- [ ] **Save export / import** via a GTK file chooser (`SaveTransfer`, including `sanitized`)
+### Phase 5 — Housekeeping the app owes the user  ✅ done, verified on screen
+- [x] **Update check** in Settings — status label plus a Check now button (`minInterval: 0`, so an
+      explicit press is not swallowed by the 30-minute poll guard); opens the release page
+- [x] **Save export / import** via GTK file choosers, with the full macOS import gauntlet:
+      decode → summarise → confirm (Cancel is the default) → `applySave`
+
+> Phase 4's three additions are built and compile, but none could be **seen**: headless sway has no
+> pointer device, so the right-click menu and the hover callout cannot be triggered, and the bubble
+> needs a live limit alert (the usage endpoint is rate-limiting). They need one pass on the real panel.
 
 ### Gates
 - [ ] Every phase verified on the real Plasma panel, not only headless
 - [ ] `swift test` still green on Linux; new pure logic covered by tests
 - [ ] README gap list shrunk in the same change that closes a gap (all three languages)
+
+## Follow-ups this work surfaced
+
+- [ ] `l.importSaveHint` says a save comes "from another **Mac**". True before this port; now it
+      should be device-neutral. It is user-facing copy in ko/en/ja/es, so it wants a real
+      translation rather than a guess — **owner: Bernardo** to confirm the wording.
+- [ ] The limits card (Phase 1) still has not been seen rendering; the Anthropic usage endpoint began
+      rate-limiting after repeated restarts.
 
 ## Working rules
 

@@ -437,14 +437,12 @@ struct FloatingPetView: View {
                    value: store.currentBubbleAlert)
     }
 
+    /// Moved to `FloatingPetCopy` so the GTK pet shows the same callout; kept as a forwarder so the
+    /// existing call sites and their regression tests are untouched.
     static func hoverTooltip(todayTokens: Int, limitUtilization: Double?,
                              mode: UsageStore.LimitDisplayMode, l: L) -> String {
-        let usage = TokenFormatter.grouped(todayTokens)
-        if let pct = limitUtilization {
-            let text = TokenFormatter.percent(UsageStore.displayPercent(pct, mode: mode))
-            return l.floatingPetHoverWithLimit(usage, mode == .remaining ? l.percentRemaining(text) : text)
-        }
-        return l.floatingPetHoverTokensOnly(usage)
+        FloatingPetCopy.hoverTooltip(
+            todayTokens: todayTokens, limitUtilization: limitUtilization, mode: mode, l: l)
     }
 }
 

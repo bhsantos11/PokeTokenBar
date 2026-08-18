@@ -22,6 +22,18 @@ DESKTOP_FILE := $(PREFIX)/share/applications/poketokenbar.desktop
 ICON_DIR := $(PREFIX)/share/icons/hicolor
 ICON_FILE := $(ICON_DIR)/512x512/apps/poketokenbar.png
 
+# SwiftPM warns "prohibited flag(s): -pthread" once per system-library target whenever it
+# regenerates the build plan. The flag reaches it transitively through glib's Requires.private, and
+# SwiftPM discards it and builds fine — so it is noise, but noise that hides real warnings. The shim
+# generates pthread-free .pc files under .build/ (never committed) and points pkg-config at them.
+# Guarded so an empty result cannot prepend an empty PKG_CONFIG_PATH entry.
+ifeq ($(UNAME_S),Linux)
+PKGCONFIG_SHIM := $(shell ./scripts/pkgconfig-shim.sh 2>/dev/null)
+ifneq ($(PKGCONFIG_SHIM),)
+export PKG_CONFIG_PATH := $(PKGCONFIG_SHIM):$(PKG_CONFIG_PATH)
+endif
+endif
+
 # The version lives in exactly one place; AppVersion.swift is generated from it.
 VERSION := $(shell grep -oE 'VERSION="[0-9.]+"' scripts/build-app.sh | grep -oE '[0-9.]+')
 VERSION_SWIFT := Sources/PokeTokenBar/Core/Platform/AppVersion.swift

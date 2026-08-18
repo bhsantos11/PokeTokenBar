@@ -18,10 +18,21 @@ final class FloatingPetWindow {
     private let companion: CompanionStore
     private let window: Widget
     private let image: Widget
+    /// Bubble shown above the sprite for a limit alert; hidden when there is nothing to say.
+    private let bubble: Widget
+    private let bubbleLabel: Widget
+    private let button: Widget
+    /// Kept alive for the window's lifetime — GTK menus are not owned by the widget they pop over.
+    private var menu: Widget?
     private var currentKey: String?
     private var isVisible = false
+    private var lastBubbleKey: String?
 
-    init(store: UsageStore, companion: CompanionStore, onActivate: @escaping () -> Void) {
+    init(
+        store: UsageStore, companion: CompanionStore,
+        onActivate: @escaping () -> Void, onSettings: @escaping () -> Void,
+        onQuit: @escaping () -> Void
+    ) {
         self.store = store
         self.companion = companion
 
@@ -37,15 +48,32 @@ final class FloatingPetWindow {
 
         // A button rather than a bare image: it gives keyboard focus, a hover cursor and a click
         // signal for free, and `RELIEF_NONE` keeps it from drawing a button frame around the sprite.
-        let button = gtk_button_new()!
+        let petButton = gtk_button_new()!
+        button = petButton
         gtk_button_set_relief(
-            UnsafeMutableRawPointer(button).assumingMemoryBound(to: GtkButton.self), GTK_RELIEF_NONE)
+            UnsafeMutableRawPointer(petButton).assumingMemoryBound(to: GtkButton.self), GTK_RELIEF_NONE)
         image = gtk_image_new()!
-        gtk_container_add(asContainer(button), image)
-        gtkConnect(UnsafeMutableRawPointer(button), signal: "clicked", box: GtkCallbackBox(onActivate))
-        gtk_container_add(asContainer(window), button)
+        gtk_container_add(asContainer(petButton), image)
+        gtkConnect(UnsafeMutableRawPointer(petButton), signal: "clicked", box: GtkCallbackBox(onActivate))
+
+        // The bubble sits above the sprite and is packed permanently, shown and hidden rather than
+        // added and removed — rebuilding it would drop the widget out from under a running
+        // `show_all`, and the pet redraws on every poll.
+        bubbleLabel = Gtk.label("", align: GTK_ALIGN_CENTER, wrap: true)
+        gtk_label_set_justify(asLabel(bubbleLabel), GTK_JUSTIFY_CENTER)
+        gtk_label_set_max_width_chars(asLabel(bubbleLabel), 24)
+        bubble = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 0)
+        Gtk.addClass(bubble, "ptb-card")
+        Gtk.addClass(bubble, "ptb-bubble")
+        Gtk.pack(bubble, bubbleLabel)
+
+        let column = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 4)
+        Gtk.pack(column, bubble)
+        Gtk.pack(column, petButton)
+        gtk_container_add(asContainer(window), column)
         enableTransparency()
 
+        buildMenu(onActivate: onActivate, onSettings: onSettings, onQuit: onQuit)
         gtkConnectDeleteEvent(UnsafeMutableRawPointer(window), box: GtkCallbackBox { [weak self] in
             // Closing the pet is the same as switching it off, so the setting matches what is on
             // screen — otherwise it reappears at next launch and reads as a bug.
@@ -70,6 +98,74 @@ final class FloatingPetWindow {
     private func show() {
         isVisible = true
         gtk_widget_show_all(window)
+        // show_all would reveal the bubble too; its visibility is state, not layout.
+        syncBubble()
+    }
+
+    /// Right-click menu — open, settings, hide. macOS offers the same from its panel.
+    private func buildMenu(
+        onActivate: @escaping () -> Void, onSettings: @escaping () -> Void,
+        onQuit: @escaping () -> Void
+    ) {
+        let l = companion.l
+        guard let popup = gtk_menu_new() else { return }
+        menu = popup
+        let items: [(String, () -> Void)] = [
+            (l.floatingPetMenuOpen, onActivate),
+            (l.settings, onSettings),
+            (l.floatingPetMenuHide, { [weak self] in
+                // Same contract as closing the window: the setting follows what is on screen.
+                self?.store.floatingPetEnabled = false
+                self?.hide()
+            }),
+            (l.quit, onQuit),
+        ]
+        for (title, action) in items {
+            guard let item = gtk_menu_item_new_with_label(title) else { continue }
+            gtkConnect(UnsafeMutableRawPointer(item), signal: "activate", box: GtkCallbackBox(action))
+            gtk_menu_shell_append(
+                UnsafeMutableRawPointer(popup).assumingMemoryBound(to: GtkMenuShell.self), item)
+            gtk_widget_show(item)
+        }
+        // `button-press-event` carries the click, so it needs the 3-argument helper.
+        gtkConnectSecondaryClick(UnsafeMutableRawPointer(button), box: GtkCallbackBox { [weak self] in
+            guard let self, let popup = self.menu else { return }
+            gtk_menu_popup_at_pointer(
+                UnsafeMutableRawPointer(popup).assumingMemoryBound(to: GtkMenu.self), nil)
+        })
+    }
+
+    /// Refresh the hover callout and the alert bubble. Called on every poll.
+    func syncCopy() {
+        let l = companion.l
+        gtk_widget_set_tooltip_text(button, FloatingPetCopy.hoverTooltip(
+            todayTokens: store.todayTotalTokens,
+            limitUtilization: store.highestLimitUtilization,
+            mode: store.limitDisplayMode, l: l))
+        syncBubble()
+    }
+
+    /// Show the current limit alert above the pet, or nothing.
+    ///
+    /// `UsageStore` owns the bubble's lifetime — it clears `currentBubbleAlert` after its TTL — so
+    /// this only mirrors that state rather than running a timer of its own.
+    private func syncBubble() {
+        guard isVisible else { return }
+        guard store.floatingPetBubbleAlerts, let alert = store.currentBubbleAlert else {
+            gtk_widget_hide(bubble)
+            lastBubbleKey = nil
+            return
+        }
+        let key = "\(alert.key)-\(alert.isCritical)"
+        if key != lastBubbleKey {
+            let copy = FloatingPetCopy.bubble(alert, l: companion.l)
+            Gtk.setMarkup(bubbleLabel,
+                          "<span size='small'><b>\(Gtk.escape(copy.title))</b>\n\(Gtk.escape(copy.body))</span>")
+            Gtk.removeClass(bubble, alert.isCritical ? "ptb-status-minor" : "ptb-status-major")
+            Gtk.addClass(bubble, alert.isCritical ? "ptb-status-major" : "ptb-status-minor")
+            lastBubbleKey = key
+        }
+        gtk_widget_show_all(bubble)
     }
 
     private func hide() {
