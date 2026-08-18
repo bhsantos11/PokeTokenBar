@@ -27,6 +27,11 @@ enum PopoverStyle {
           font-size: 10px;
           font-weight: bold;
         }
+        /* Grid cells: the card padding is sized for full-width rows and would cost 4×24pt across
+           a four-column grid, which is what pushed the last column off a 400pt panel. */
+        .ptb-cell { background-color: alpha(@theme_fg_color, 0.05); border-radius: 8px; padding: 3px; }
+        /* Filter capsules have to fit four words on one row at 400pt. */
+        .ptb-chip-tight { padding: 2px 6px; font-size: 9px; }
         .ptb-chip {
           background-color: alpha(@theme_fg_color, 0.08);
           border-radius: 12px;

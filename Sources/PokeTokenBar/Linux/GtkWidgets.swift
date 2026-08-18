@@ -34,14 +34,25 @@ enum Gtk {
     /// A label carrying Pango markup. Everything styled — bold numbers, coloured percentages — goes
     /// through markup rather than per-widget CSS, because the text is rebuilt on every refresh and
     /// swapping one string is cheaper than reattaching style classes.
+    /// Roughly how many characters fit across the popover's content column.
+    ///
+    /// A wrapping `GtkLabel` reports its **unwrapped** text as its natural width unless capped, and
+    /// a scrolled window with horizontal scrolling disabled propagates that straight up to the
+    /// toplevel — so one long sentence anywhere silently widens the whole window to fit it on one
+    /// line. Capping the character count is what makes wrapping actually happen.
+    static let wrapWidthChars: Int32 = 42
+
     static func label(
-        _ markup: String = "", align: GtkAlign = GTK_ALIGN_START, wrap: Bool = false
+        _ markup: String = "", align: GtkAlign = GTK_ALIGN_START, wrap: Bool = false,
+        wrapChars: Int32 = wrapWidthChars
     ) -> Widget {
         let widget = gtk_label_new(nil)!
         setMarkup(widget, markup)
         gtk_widget_set_halign(widget, align)
         if wrap {
             gtk_label_set_line_wrap(asLabel(widget), 1)
+            gtk_label_set_line_wrap_mode(asLabel(widget), PANGO_WRAP_WORD_CHAR)
+            gtk_label_set_max_width_chars(asLabel(widget), wrapChars)
             gtk_label_set_xalign(asLabel(widget), 0)
         }
         return widget

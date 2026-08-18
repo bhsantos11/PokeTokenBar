@@ -23,6 +23,11 @@ final class PopoverWindow {
     /// Which provider's breakdown is expanded. nil = the first one.
     private var selectedProviderID: String?
 
+    /// Panel size. `set_default_size` is only honoured while the content's natural size is smaller,
+    /// so everything inside has to stay within it — see the wrap cap in `Gtk.label`.
+    private static let windowWidth: Int32 = 400
+    private static let windowHeight: Int32 = 620
+
     /// Which half of the Collection tab is showing.
     private enum CollectionMode { case dex, log }
     private var collectionMode: CollectionMode = .dex
@@ -62,7 +67,7 @@ final class PopoverWindow {
 
         window = gtk_window_new(GTK_WINDOW_TOPLEVEL)!
         gtk_window_set_title(asWindow(window), "PokeTokenBar")
-        gtk_window_set_default_size(asWindow(window), 400, 620)
+        gtk_window_set_default_size(asWindow(window), Self.windowWidth, Self.windowHeight)
         gtk_window_set_keep_above(asWindow(window), 1)
         gtk_window_set_position(asWindow(window), GTK_WIN_POS_CENTER)
 
@@ -84,9 +89,14 @@ final class PopoverWindow {
                              (.collection, l.collection)] {
             let page = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 10)
             let scroller = gtk_scrolled_window_new(nil, nil)!
-            gtk_scrolled_window_set_policy(
-                UnsafeMutableRawPointer(scroller).assumingMemoryBound(to: GtkScrolledWindow.self),
-                GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC)
+            let scrolled = UnsafeMutableRawPointer(scroller).assumingMemoryBound(to: GtkScrolledWindow.self)
+            gtk_scrolled_window_set_policy(scrolled, GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC)
+            // Without this the scroller asks for whatever its widest child wants and the window
+            // grows to match — which is how a single long sentence turned a 400pt panel into a
+            // full-screen one. Ask for the panel width and let tall content scroll instead.
+            gtk_scrolled_window_set_propagate_natural_width(scrolled, 0)
+            gtk_scrolled_window_set_propagate_natural_height(scrolled, 0)
+            gtk_scrolled_window_set_min_content_width(scrolled, Self.windowWidth - 24)
             gtk_container_add(asContainer(scroller), page)
             gtk_stack_add_titled(asStack(stack), scroller, tab.identifier, title)
             built[tab] = page
@@ -511,15 +521,25 @@ final class PopoverWindow {
     /// log counts **individuals** (`dexCount`). Using one for both would make the capsules disagree
     /// with the list they filter.
     private func rarityFilterRow(_ l: L) -> Widget {
-        let row = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 6)
-        gtk_widget_set_halign(row, GTK_ALIGN_CENTER)
+        // A flow box rather than a plain row: four rarity words do not always fit on one line at
+        // 400pt in every language, and clipping the last capsule hides a filter entirely.
+        let row = gtk_flow_box_new()!
+        let flow = UnsafeMutableRawPointer(row).assumingMemoryBound(to: GtkFlowBox.self)
+        gtk_flow_box_set_selection_mode(flow, GTK_SELECTION_NONE)
+        gtk_flow_box_set_max_children_per_line(flow, 4)
+        // Ask for all four on one line and let the box fill the panel. Centring it instead makes the
+        // flow box request its minimum width, which is one capsule — and they stack vertically.
+        gtk_flow_box_set_min_children_per_line(flow, 4)
+        gtk_flow_box_set_homogeneous(flow, 1)
+        gtk_widget_set_halign(row, GTK_ALIGN_FILL)
         let species = companion.dexSpecies
         for rarity in Self.rarityDisplayOrder {
             let count = collectionMode == .dex
                 ? species.filter { $0.rarity == rarity }.count
                 : companion.dexCount(rarity)
-            let button = gtk_button_new_with_label("\(l.rarityLabel(rarity))  \(count)")!
+            let button = gtk_button_new_with_label("\(l.rarityLabel(rarity)) \(count)")!
             Gtk.addClass(button, "ptb-chip")
+            Gtk.addClass(button, "ptb-chip-tight")
             if rarityFilter == rarity { Gtk.addClass(button, "ptb-chip-on") }
             gtk_button_set_relief(
                 UnsafeMutableRawPointer(button).assumingMemoryBound(to: GtkButton.self), GTK_RELIEF_NONE)
@@ -533,7 +553,7 @@ final class PopoverWindow {
                            self.dexPage = 0   // the old page may not exist under the new filter
                            self.refresh()
                        })
-            Gtk.pack(row, button)
+            gtk_container_add(asContainer(row), button)
         }
         return row
     }
@@ -590,15 +610,16 @@ final class PopoverWindow {
     }
 
     private func speciesCell(_ species: CompanionStore.DexSpecies, _ l: L) -> Widget {
-        let cell = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 2)
-        Gtk.addClass(cell, "ptb-card")
-        if let image = spriteImage("\(species.id)-\(species.isShiny)", size: 52)
-            ?? spriteImage("\(species.id)-false", size: 52) {
+        let cell = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 1)
+        Gtk.addClass(cell, "ptb-cell")
+        // 44pt, as macOS uses — four of these plus padding is what fits the panel width.
+        if let image = spriteImage("\(species.id)-\(species.isShiny)", size: 44)
+            ?? spriteImage("\(species.id)-false", size: 44) {
             Gtk.pack(cell, image)
         }
         var name = Gtk.escape(species.name)
         if species.isShiny { name = "✨ " + name }
-        Gtk.pack(cell, Gtk.label("<span size='small'>\(name)</span>", align: GTK_ALIGN_CENTER))
+        Gtk.pack(cell, Gtk.label("<span size='x-small'>\(name)</span>", align: GTK_ALIGN_CENTER))
         // "Raising" marks a cell backed only by the companion in hand — buying a fresh egg discards
         // it and the cell disappears, which would look like data loss without the badge.
         if species.isRaising {
