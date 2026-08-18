@@ -32,14 +32,14 @@ Each of these is a stored value the Linux app already honours but offers no way 
       (credentials come from `~/.claude/.credentials.json`) — a dead switch is worse than an explained one
 - [x] **Refresh limit token** action (`refreshLimitTokenFromKeychain`)
 
-### Phase 3 — Collection, properly
+### Phase 3 — Collection, properly  ✅ done, verified on screen
 Today's Collection tab is a flat grid of individuals capped at 60. macOS has two distinct views.
-- [ ] **Species Pokédex** — `companion.dexSpecies`, 24 per page, with paging controls
-- [ ] Rarity **filter** (common / uncommon / rare / legendary), as the macOS dex has
-- [ ] ✨ marker for shiny ownership, kept from the current grid
-- [ ] **Catch log** — individuals with evolution line, rarity, nature and capture date
-      (`dexEntriesSorted`, `dexResolveChainNames`, `isActiveDexEntry`)
-- [ ] Segmented control to switch dex ↔ catch log
+- [x] **Species Pokédex** — `companion.dexSpecies`, 24 per page (macOS 4×6), with paging controls
+- [x] Rarity **filter** capsules with counts; tapping the active one clears it
+- [x] ✨ marker for shiny ownership, plus the `Raising` badge for a not-yet-graduated species
+- [x] **Catch log** — individuals with evolution line, rarity, nature and capture date; missing
+      line names resolved once and cached, so rebuilds do not refetch
+- [x] Segmented control to switch dex ↔ catch log
 
 ### Phase 4 — The floating pet, fully
 - [ ] **Hover callout** with today's usage (`FloatingPetController.hoverTooltip` is pure — move it

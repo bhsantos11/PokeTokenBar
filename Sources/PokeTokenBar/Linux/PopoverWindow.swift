@@ -23,9 +23,21 @@ final class PopoverWindow {
     /// Which provider's breakdown is expanded. nil = the first one.
     private var selectedProviderID: String?
 
-    /// How many dex entries are drawn. The macOS Collection paginates; this caps the sprite
-    /// prefetch so a large dex does not fire hundreds of requests when the window opens.
-    private let dexPageSize = 60
+    /// Which half of the Collection tab is showing.
+    private enum CollectionMode { case dex, log }
+    private var collectionMode: CollectionMode = .dex
+    /// Zero-based page of the species grid.
+    private var dexPage = 0
+    /// Rarity filter; nil shows everything. Tapping the active capsule clears it (`l.dexFilterHint`).
+    private var rarityFilter: Rarity?
+    /// Evolution-line names resolved for catch-log rows, keyed by dex entry id — `dexResolveChainNames`
+    /// hits the network on a miss, so a rebuild must not refire it for rows already resolved.
+    private var chainNames: [String: [Int: String]] = [:]
+
+    /// 24 per page — the 4×6 grid macOS uses, so both platforms paginate identically.
+    private static let dexPageSize = 24
+    /// The catch log is a flat list; this bounds how many rows (and sprite fetches) one build costs.
+    private static let catchLogLimit = 60
 
     /// Celebration currently on screen, and the sequence it came from. Held rather than read
     /// straight off the store because the store's copy is consumed as soon as it is shown, while
@@ -103,8 +115,18 @@ final class PopoverWindow {
         gtk_stack_set_visible_child_name(asStack(stack), tab.identifier)
     }
 
+    /// Older saves have dex entries without stored species names; fill them once per session.
+    private var didBackfillDexNames = false
+
     func show() {
         isVisible = true
+        if !didBackfillDexNames {
+            didBackfillDexNames = true
+            Task { @MainActor in
+                await companion.backfillMissingDexNames()
+                self.refresh()
+            }
+        }
         GtkRuntime.hasVisibleWindow = true
         refresh()
         gtk_widget_show_all(window)
@@ -144,10 +166,27 @@ final class PopoverWindow {
                 await cacheSprite(speciesID: speciesID, shiny: companion.currentIsShiny)
             }
         }
-        for entry in companion.dexEntriesSorted.prefix(dexPageSize) {
+        // The dex draws one cell per species, the log one per capture — both need sprites, and the
+        // dex is the tab that opens first.
+        for species in companion.dexSpecies.prefix(Self.dexPageSize * 2) {
+            await cacheSprite(speciesID: species.id, shiny: species.isShiny)
+        }
+        for entry in companion.dexEntriesSorted.prefix(Self.catchLogLimit) {
             await cacheSprite(speciesID: entry.finalID, shiny: entry.isShiny)
         }
+        await resolveMissingChainNames()
         refresh()
+    }
+
+    /// Fill in evolution-line names for catch-log rows saved before names were stored.
+    ///
+    /// `dexResolveChainNames` fetches and back-fills, so it must run once per entry rather than on
+    /// every rebuild — the cache here is what stops a refresh loop re-requesting the same lines.
+    private func resolveMissingChainNames() async {
+        for entry in companion.dexEntriesSorted.prefix(Self.catchLogLimit) {
+            guard chainNames[entry.id] == nil, companion.dexStoredChainNames(entry) == nil else { continue }
+            chainNames[entry.id] = await companion.dexResolveChainNames(entry)
+        }
     }
 
     private func cacheCompanionSprite() async {
@@ -425,8 +464,7 @@ final class PopoverWindow {
     // MARK: Collection
 
     private func buildCollection(into page: Widget, _ l: L) {
-        let entries = companion.dexEntriesSorted
-        guard !entries.isEmpty else {
+        guard !companion.dexEntries.isEmpty else {
             let empty = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 6)
             Gtk.margins(empty, top: 24)
             Gtk.pack(empty, Gtk.label("<b>\(Gtk.escape(l.dexEmptyTitle))</b>", align: GTK_ALIGN_CENTER))
@@ -438,53 +476,191 @@ final class PopoverWindow {
             return
         }
 
-        let counts = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 8)
+        // Pokédex ⇄ catch log. Two views of the same data: the dex folds individuals into one cell
+        // per species, the log keeps every capture.
+        let segments = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 6)
+        gtk_widget_set_halign(segments, GTK_ALIGN_CENTER)
+        for (mode, title) in [(CollectionMode.dex, l.dexTitle), (.log, l.catchLogTitle)] {
+            let button = gtk_button_new_with_label(title)!
+            Gtk.addClass(button, "ptb-chip")
+            if mode == collectionMode { Gtk.addClass(button, "ptb-chip-on") }
+            gtk_button_set_relief(
+                UnsafeMutableRawPointer(button).assumingMemoryBound(to: GtkButton.self), GTK_RELIEF_NONE)
+            gtkConnect(UnsafeMutableRawPointer(button), signal: "clicked",
+                       box: GtkCallbackBox { [weak self] in
+                           self?.collectionMode = mode
+                           self?.refresh()
+                       })
+            Gtk.pack(segments, button)
+        }
+        Gtk.pack(page, segments)
+        Gtk.pack(page, rarityFilterRow(l))
+
+        switch collectionMode {
+        case .dex: buildSpeciesDex(into: page, l)
+        case .log: buildCatchLog(into: page, l)
+        }
+    }
+
+    /// Rarity capsules with counts. Tapping the active one clears the filter, as on macOS.
+    private func rarityFilterRow(_ l: L) -> Widget {
+        let row = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 6)
+        gtk_widget_set_halign(row, GTK_ALIGN_CENTER)
         for rarity in [Rarity.common, .uncommon, .rare, .legendary] {
             let count = companion.dexCount(rarity)
             guard count > 0 else { continue }
-            let chip = Gtk.label(
-                "<span size='small'>\(Gtk.escape(rarity.rawValue)) <b>\(count)</b></span>")
-            Gtk.addClass(chip, "ptb-chip")
-            Gtk.pack(counts, chip)
+            let button = gtk_button_new_with_label("\(l.rarityLabel(rarity))  \(count)")!
+            Gtk.addClass(button, "ptb-chip")
+            if rarityFilter == rarity { Gtk.addClass(button, "ptb-chip-on") }
+            gtk_button_set_relief(
+                UnsafeMutableRawPointer(button).assumingMemoryBound(to: GtkButton.self), GTK_RELIEF_NONE)
+            gtk_widget_set_tooltip_text(button, l.dexFilterHint)
+            gtkConnect(UnsafeMutableRawPointer(button), signal: "clicked",
+                       box: GtkCallbackBox { [weak self] in
+                           guard let self else { return }
+                           self.rarityFilter = self.rarityFilter == rarity ? nil : rarity
+                           self.dexPage = 0   // the old page may not exist under the new filter
+                           self.refresh()
+                       })
+            Gtk.pack(row, button)
         }
-        Gtk.pack(page, counts)
+        return row
+    }
 
-        // A flow grid keeps the sprites in rows that reflow with the window, which is closer to the
-        // macOS dex than a single long column.
+    /// One cell per owned species, 24 to a page — the same 4×6 grid macOS uses.
+    private func buildSpeciesDex(into page: Widget, _ l: L) {
+        let all = companion.dexSpecies
+        let species = rarityFilter.map { r in all.filter { $0.rarity == r } } ?? all
+        let pageCount = max(1, (species.count + Self.dexPageSize - 1) / Self.dexPageSize)
+        // A filter change can strand the page past the end; clamp rather than show a blank grid.
+        dexPage = min(dexPage, pageCount - 1)
+        let start = dexPage * Self.dexPageSize
+        let visible = Array(species[start..<min(start + Self.dexPageSize, species.count)])
+
+        let total = Gtk.label("<span size='small'>\(Gtk.escape(l.dexSpeciesTotal(species.count)))</span>",
+                              align: GTK_ALIGN_CENTER)
+        Gtk.addClass(total, "ptb-muted")
+        Gtk.pack(page, total)
+
         let grid = gtk_flow_box_new()!
-        let flowBox = UnsafeMutableRawPointer(grid).assumingMemoryBound(to: GtkFlowBox.self)
-        gtk_flow_box_set_selection_mode(flowBox, GTK_SELECTION_NONE)
-        gtk_flow_box_set_max_children_per_line(flowBox, 4)
-        gtk_flow_box_set_homogeneous(flowBox, 1)
-        for entry in entries.prefix(dexPageSize) {
-            gtk_container_add(asContainer(grid), dexCell(entry))
-        }
+        let flow = UnsafeMutableRawPointer(grid).assumingMemoryBound(to: GtkFlowBox.self)
+        gtk_flow_box_set_selection_mode(flow, GTK_SELECTION_NONE)
+        gtk_flow_box_set_max_children_per_line(flow, 4)
+        gtk_flow_box_set_min_children_per_line(flow, 4)
+        gtk_flow_box_set_homogeneous(flow, 1)
+        for entry in visible { gtk_container_add(asContainer(grid), speciesCell(entry, l)) }
         Gtk.pack(page, grid)
 
-        if entries.count > dexPageSize {
-            // Say what is not shown. Silently truncating a collection reads as data loss.
+        guard pageCount > 1 else { return }
+        let pager = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 10)
+        gtk_widget_set_halign(pager, GTK_ALIGN_CENTER)
+        Gtk.pack(pager, pagerButton("‹", enabled: dexPage > 0) { [weak self] in
+            self?.dexPage -= 1; self?.refresh()
+        })
+        let label = Gtk.label(
+            "<span size='small'>\(Gtk.escape(l.dexPageLabel(dexPage + 1, pageCount)))</span>")
+        Gtk.addClass(label, "ptb-muted")
+        gtk_widget_set_valign(label, GTK_ALIGN_CENTER)
+        Gtk.pack(pager, label)
+        Gtk.pack(pager, pagerButton("›", enabled: dexPage < pageCount - 1) { [weak self] in
+            self?.dexPage += 1; self?.refresh()
+        })
+        Gtk.pack(page, pager)
+    }
+
+    private func pagerButton(_ glyph: String, enabled: Bool, _ action: @escaping () -> Void) -> Widget {
+        let button = gtk_button_new_with_label(glyph)!
+        gtk_button_set_relief(
+            UnsafeMutableRawPointer(button).assumingMemoryBound(to: GtkButton.self), GTK_RELIEF_NONE)
+        gtk_widget_set_sensitive(button, enabled ? 1 : 0)
+        gtkConnect(UnsafeMutableRawPointer(button), signal: "clicked", box: GtkCallbackBox(action))
+        return button
+    }
+
+    private func speciesCell(_ species: CompanionStore.DexSpecies, _ l: L) -> Widget {
+        let cell = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 2)
+        Gtk.addClass(cell, "ptb-card")
+        if let image = spriteImage("\(species.id)-\(species.isShiny)", size: 52)
+            ?? spriteImage("\(species.id)-false", size: 52) {
+            Gtk.pack(cell, image)
+        }
+        var name = Gtk.escape(species.name)
+        if species.isShiny { name = "✨ " + name }
+        Gtk.pack(cell, Gtk.label("<span size='small'>\(name)</span>", align: GTK_ALIGN_CENTER))
+        // "Raising" marks a cell backed only by the companion in hand — buying a fresh egg discards
+        // it and the cell disappears, which would look like data loss without the badge.
+        if species.isRaising {
+            let badge = Gtk.label("<span size='x-small'>\(Gtk.escape(l.dexRaising))</span>",
+                                  align: GTK_ALIGN_CENTER)
+            Gtk.addClass(badge, "ptb-badge")
+            Gtk.pack(cell, badge)
+        }
+        return cell
+    }
+
+    /// Every individual caught, newest first, with its line, rarity, nature and capture date.
+    private func buildCatchLog(into page: Widget, _ l: L) {
+        let all = companion.dexEntriesSorted
+        let entries = rarityFilter.map { r in all.filter { $0.rarity == r } } ?? all
+        let total = Gtk.label("<span size='small'>\(Gtk.escape(l.dexTotal(entries.count)))</span>",
+                              align: GTK_ALIGN_CENTER)
+        Gtk.addClass(total, "ptb-muted")
+        Gtk.pack(page, total)
+        for entry in entries.prefix(Self.catchLogLimit) { Gtk.pack(page, catchLogRow(entry, l)) }
+        if entries.count > Self.catchLogLimit {
             let more = Gtk.label(
-                "<span size='small'>+\(entries.count - dexPageSize)</span>", align: GTK_ALIGN_CENTER)
+                "<span size='small'>+\(entries.count - Self.catchLogLimit)</span>",
+                align: GTK_ALIGN_CENTER)
             Gtk.addClass(more, "ptb-muted")
             Gtk.pack(page, more)
         }
     }
 
-    private func dexCell(_ entry: DexEntry) -> Widget {
-        let cell = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 2)
-        Gtk.addClass(cell, "ptb-card")
-        let key = "\(entry.finalID)-\(entry.isShiny)"
-        if let image = spriteImage(key, size: 56) {
-            Gtk.pack(cell, image)
+    private func catchLogRow(_ entry: DexEntry, _ l: L) -> Widget {
+        let row = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 10)
+        Gtk.addClass(row, "ptb-card")
+        if companion.isActiveDexEntry(entry) { Gtk.addClass(row, "ptb-stage-current") }
+        if let image = spriteImage("\(entry.finalID)-\(entry.isShiny)", size: 44)
+            ?? spriteImage("\(entry.finalID)-false", size: 44) {
+            Gtk.pack(row, image)
         }
-        let name = companion.dexStoredChainNames(entry)?[entry.finalID]
-            ?? "#\(entry.finalID)"
-        var markup = "<span size='small'>\(Gtk.escape(name))</span>"
-        if entry.isShiny { markup = "✨ " + markup }
-        let label = Gtk.label(markup, align: GTK_ALIGN_CENTER)
-        Gtk.pack(cell, label)
-        return cell
+
+        let text = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 2)
+        gtk_widget_set_valign(text, GTK_ALIGN_CENTER)
+
+        // Names come from the entry when it was saved with them; older saves need a fetch, which is
+        // cached here so a rebuild does not re-request the same line.
+        let names = chainNames[entry.id] ?? companion.dexStoredChainNames(entry)
+        let line = entry.chainOrder
+            .map { names?[$0] ?? "#\($0)" }
+            .joined(separator: " → ")
+        var heading = Gtk.escape(line)
+        if entry.isShiny { heading = "✨ " + heading }
+        Gtk.pack(text, Gtk.label("<span size='small'><b>\(heading)</b></span>", wrap: true))
+
+        var facts = [l.rarityLabel(entry.rarity)]
+        if let nature = entry.nature { facts.append(nature.rawValue) }
+        if let caughtAt = entry.caughtAt {
+            facts.append(Self.dateFormatter(companion.language).string(from: caughtAt))
+        }
+        if companion.isActiveDexEntry(entry) { facts.append(l.dexRaising) }
+        let detail = Gtk.label("<span size='small'>\(Gtk.escape(facts.joined(separator: " · ")))</span>",
+                               wrap: true)
+        Gtk.addClass(detail, "ptb-muted")
+        Gtk.pack(text, detail)
+        Gtk.pack(row, text, expand: true)
+        return row
     }
+
+    /// Capture dates in the app's language, not the system's.
+    private static func dateFormatter(_ language: AppLanguage) -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = language.displayLocale
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter
+    }
+
 
     // MARK: Home
 

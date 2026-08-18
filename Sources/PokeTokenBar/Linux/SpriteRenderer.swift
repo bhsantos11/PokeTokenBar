@@ -119,7 +119,7 @@ extension SpriteRenderer {
                 loader, base.assumingMemoryBound(to: guchar.self), gsize(data.count), nil) != 0
         }
         let closed = gdk_pixbuf_loader_close(loader, nil) != 0
-        guard wrote, closed, let animation = gdk_pixbuf_loader_get_animation(loader) else {
+        guard wrote, closed, let animation = ptb_loader_animation(loader) else {
             g_object_unref(UnsafeMutableRawPointer(loader))
             return []
         }
@@ -127,12 +127,12 @@ extension SpriteRenderer {
         g_object_unref(UnsafeMutableRawPointer(loader))
         defer { g_object_unref(UnsafeMutableRawPointer(animation)) }
 
-        guard gdk_pixbuf_animation_is_static_image(animation) == 0 else { return [] }
+        guard ptb_animation_is_static(animation) == 0 else { return [] }
 
         // The iterator is driven by a clock we advance ourselves rather than by wall time, so the
         // whole loop is extracted immediately instead of in real time.
-        var clock = GTimeVal(tv_sec: 0, tv_usec: 0)
-        guard let iterator = gdk_pixbuf_animation_get_iter(animation, &clock) else { return [] }
+        var elapsedMicros: gint64 = 0
+        guard let iterator = ptb_animation_iter(animation, 0) else { return [] }
         defer { g_object_unref(UnsafeMutableRawPointer(iterator)) }
 
         var frames: [Frame] = []
@@ -141,9 +141,9 @@ extension SpriteRenderer {
         // The cap is a backstop for a malformed animation; normal exit is loop detection below.
         let maximumFrames = 120
         while frames.count < maximumFrames {
-            let milliseconds = gdk_pixbuf_animation_iter_get_delay_time(iterator)
+            let milliseconds = ptb_animation_iter_delay(iterator)
             guard milliseconds >= 0 else { break }   // -1: not animated after all
-            guard let pixbuf = gdk_pixbuf_animation_iter_get_pixbuf(iterator) else { break }
+            guard let pixbuf = ptb_animation_iter_pixbuf(iterator) else { break }
             let fingerprint = signature(of: pixbuf)
 
             // The iterator hands back frame 0 twice before it starts moving, and some sprites
@@ -155,7 +155,7 @@ extension SpriteRenderer {
                     frames.append(Frame(name: previous.name,
                                         delay: previous.delay + TimeInterval(milliseconds) / 1000))
                 }
-                advance(iterator, &clock, milliseconds)
+                advance(iterator, &elapsedMicros, milliseconds)
                 continue
             }
             // Back to the first frame after at least two distinct ones: a full loop is captured.
@@ -168,7 +168,7 @@ extension SpriteRenderer {
             guard writeCroppedScaled(pixbuf, to: file) else { break }
             frames.append(Frame(name: name, delay: TimeInterval(milliseconds) / 1000))
 
-            advance(iterator, &clock, milliseconds)
+            advance(iterator, &elapsedMicros, milliseconds)
         }
         return frames.count > 1 ? frames : []
     }
@@ -208,17 +208,17 @@ extension SpriteRenderer {
                 loader, base.assumingMemoryBound(to: guchar.self), gsize(data.count), nil) != 0
         }
         let closed = gdk_pixbuf_loader_close(loader, nil) != 0
-        guard wrote, closed, let animation = gdk_pixbuf_loader_get_animation(loader) else {
+        guard wrote, closed, let animation = ptb_loader_animation(loader) else {
             g_object_unref(UnsafeMutableRawPointer(loader))
             return []
         }
         g_object_ref(UnsafeMutableRawPointer(animation))
         g_object_unref(UnsafeMutableRawPointer(loader))
         defer { g_object_unref(UnsafeMutableRawPointer(animation)) }
-        guard gdk_pixbuf_animation_is_static_image(animation) == 0 else { return [] }
+        guard ptb_animation_is_static(animation) == 0 else { return [] }
 
-        var clock = GTimeVal(tv_sec: 0, tv_usec: 0)
-        guard let iterator = gdk_pixbuf_animation_get_iter(animation, &clock) else { return [] }
+        var elapsedMicros: gint64 = 0
+        guard let iterator = ptb_animation_iter(animation, 0) else { return [] }
         defer { g_object_unref(UnsafeMutableRawPointer(iterator)) }
 
         var frames: [(OpaquePointer, TimeInterval)] = []
@@ -226,15 +226,15 @@ extension SpriteRenderer {
         var lastSignature: Int?
         let maximumFrames = 120   // same runaway guard as writeFrames
         while frames.count < maximumFrames {
-            let milliseconds = gdk_pixbuf_animation_iter_get_delay_time(iterator)
-            guard milliseconds >= 0, let source = gdk_pixbuf_animation_iter_get_pixbuf(iterator)
+            let milliseconds = ptb_animation_iter_delay(iterator)
+            guard milliseconds >= 0, let source = ptb_animation_iter_pixbuf(iterator)
             else { break }
             let fingerprint = signature(of: source)
             if fingerprint == lastSignature {   // repeat: extend the previous frame (see writeFrames)
                 if let last = frames.popLast() {
                     frames.append((last.0, last.1 + TimeInterval(milliseconds) / 1000))
                 }
-                advance(iterator, &clock, milliseconds)
+                advance(iterator, &elapsedMicros, milliseconds)
                 continue
             }
             if let firstSignature, fingerprint == firstSignature, frames.count >= 2 { break }
@@ -243,7 +243,7 @@ extension SpriteRenderer {
             if let scaled = croppedScaled(source, size: size) {
                 frames.append((scaled, TimeInterval(milliseconds) / 1000))
             }
-            advance(iterator, &clock, milliseconds)
+            advance(iterator, &elapsedMicros, milliseconds)
         }
         if frames.count > 1 { return frames }
         for frame in frames { g_object_unref(UnsafeMutableRawPointer(frame.0)) }
@@ -270,13 +270,14 @@ extension SpriteRenderer {
 
 extension SpriteRenderer {
     /// Step the iterator's synthetic clock forward by one frame's delay.
+    ///
+    /// Microseconds rather than a `GTimeVal`: GLib deprecated that type and gdk-pixbuf never gained
+    /// a replacement, so the struct is confined to a C wrapper in `Sources/CGtk/shim.h`.
     fileprivate static func advance(
-        _ iterator: OpaquePointer, _ clock: inout GTimeVal, _ milliseconds: Int32
+        _ iterator: OpaquePointer, _ elapsedMicros: inout gint64, _ milliseconds: Int32
     ) {
-        clock.tv_usec += glong(milliseconds) * 1000
-        clock.tv_sec += glong(clock.tv_usec / 1_000_000)
-        clock.tv_usec %= 1_000_000
-        _ = gdk_pixbuf_animation_iter_advance(iterator, &clock)
+        elapsedMicros += gint64(milliseconds) * 1000
+        _ = ptb_animation_iter_advance(iterator, elapsedMicros)
     }
 
     /// A cheap fingerprint of a pixbuf's pixels, used to spot when a GIF has looped.
