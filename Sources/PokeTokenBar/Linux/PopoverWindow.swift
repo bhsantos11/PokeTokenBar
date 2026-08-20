@@ -44,8 +44,12 @@ final class PopoverWindow {
     private static let windowHeight: Int32 = 620
 
     /// Which half of the Collection tab is showing.
-    private enum CollectionMode { case dex, log, box }
+    private enum CollectionMode { case dex, log, box, chronicle }
     private var collectionMode: CollectionMode = .dex
+    /// Which Pokédex cell is expanded, if any. The grid is a summary; this is the "and what did I
+    /// actually catch" answer it cannot fit into a 44pt cell.
+    private var selectedSpecies: Int?
+
     /// Whether the Home hero is showing its rename field instead of the name.
     /// Kept on the window because `refresh()` rebuilds every widget — state inside the row would be
     /// discarded by whichever poll landed while someone was typing.
@@ -151,11 +155,28 @@ final class PopoverWindow {
     private func observeTabChanges() {
         gtkConnectNotify(UnsafeMutableRawPointer(stack), property: "visible-child",
                          box: GtkCallbackBox { [weak self] in
-                             guard let self, self.pendingConfirm != nil else { return }
+                             guard let self else { return }
+                             // `notify::visible-child` also fires while `refresh()` tears down and
+                             // rebuilds the pages, not only when someone picks another tab. Acting
+                             // on every emission made any state set *by* a click get wiped by the
+                             // rebuild that same click triggered — the Pokédex detail opened and
+                             // vanished within one frame. Compare against the last tab we saw.
+                             let name = gtk_stack_get_visible_child_name(asStack(self.stack))
+                                 .map { String(cString: $0) }
+                             guard name != self.lastVisibleTab else { return }
+                             self.lastVisibleTab = name
+                             guard self.pendingConfirm != nil || self.selectedSpecies != nil else { return }
                              self.pendingConfirm = nil
+                             // Coming back to the Pokédex should land on the grid, not on whatever
+                             // cell was open several tabs ago.
+                             self.selectedSpecies = nil
                              self.refresh()
                          })
     }
+
+    /// The tab name at the last emission of `notify::visible-child`, so a rebuild is told apart
+    /// from a real tab change.
+    private var lastVisibleTab: String?
 
     func select(_ tab: PopoverTab) {
         pendingConfirm = nil
@@ -183,6 +204,7 @@ final class PopoverWindow {
     func hide() {
         isVisible = false
         pendingConfirm = nil
+        selectedSpecies = nil
         GtkRuntime.hasVisibleWindow = false
         gtk_widget_hide(window)
     }
@@ -635,7 +657,8 @@ final class PopoverWindow {
         // The empty-state short-circuit has to consider the Box too: `dexEntries` already counts
         // boxed mons, but a held egg with an empty box and no captures still needs the tab to open,
         // otherwise the only way back to a paid egg is unreachable.
-        guard !companion.dexEntries.isEmpty || companion.hasHeldEgg else {
+        guard !companion.dexEntries.isEmpty || companion.hasHeldEgg
+                || !companion.chronicleEntries.isEmpty else {
             let empty = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 6)
             Gtk.margins(empty, top: 24)
             Gtk.pack(empty, Gtk.label("<b>\(Gtk.escape(l.dexEmptyTitle))</b>", align: GTK_ALIGN_CENTER))
@@ -652,7 +675,7 @@ final class PopoverWindow {
         let segments = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 6)
         gtk_widget_set_halign(segments, GTK_ALIGN_CENTER)
         for (mode, title) in [(CollectionMode.dex, l.dexTitle), (.log, l.catchLogTitle),
-                              (.box, boxSegmentTitle(l))] {
+                              (.box, boxSegmentTitle(l)), (.chronicle, l.chronicleTitle)] {
             let button = gtk_button_new_with_label(title)!
             Gtk.addClass(button, "ptb-chip")
             if mode == collectionMode { Gtk.addClass(button, "ptb-chip-on") }
@@ -660,6 +683,7 @@ final class PopoverWindow {
                 UnsafeMutableRawPointer(button).assumingMemoryBound(to: GtkButton.self), GTK_RELIEF_NONE)
             gtkConnect(UnsafeMutableRawPointer(button), signal: "clicked",
                        box: GtkCallbackBox { [weak self] in
+                           self?.selectedSpecies = nil
                            self?.collectionMode = mode
                            self?.refresh()
                        })
@@ -668,14 +692,71 @@ final class PopoverWindow {
         Gtk.pack(page, segments)
         // The rarity filter belongs to the two collection views; the Box is a short list of
         // individuals you act on, and filtering it would just hide the one you came for.
-        if collectionMode != .box { Gtk.pack(page, rarityFilterRow(l)) }
+        // Hidden for the Box (a short list you act on) and while a species is expanded (the filter
+        // would narrow a grid that is not on screen).
+        if collectionMode != .box, collectionMode != .chronicle,
+           !(collectionMode == .dex && selectedSpecies != nil) {
+            Gtk.pack(page, rarityFilterRow(l))
+        }
 
         switch collectionMode {
         case .dex: buildSpeciesDex(into: page, l)
         case .log: buildCatchLog(into: page, l)
         case .box: buildBox(into: page, l)
+        case .chronicle: buildChronicle(into: page, l)
         }
     }
+
+    // MARK: Chronicle
+
+    /// The companion's diary. Sentences are built at read time from stored events, so switching the
+    /// app language rewrites the whole history rather than leaving old entries in the old language.
+    private func buildChronicle(into page: Widget, _ l: L) {
+        let entries = companion.chronicleEntries
+        guard !entries.isEmpty else {
+            let empty = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 6)
+            Gtk.margins(empty, top: 24)
+            Gtk.pack(empty, Gtk.label("<b>\(Gtk.escape(l.chronicleEmptyTitle))</b>", align: GTK_ALIGN_CENTER))
+            let hint = Gtk.label("<span size='small'>\(Gtk.escape(l.chronicleEmptyHint))</span>",
+                                 align: GTK_ALIGN_CENTER, wrap: true)
+            Gtk.addClass(hint, "ptb-muted")
+            Gtk.pack(empty, hint)
+            Gtk.pack(page, empty)
+            return
+        }
+        var lastDay: String?
+        for entry in entries.prefix(Self.chronicleLimit) {
+            // A date heading per day, so a long history reads as a diary rather than one long list.
+            let day = Self.dateFormatter(companion.language).string(from: entry.at)
+            if day != lastDay {
+                lastDay = day
+                let heading = Gtk.label("<span size='small'>\(Gtk.escape(day))</span>")
+                Gtk.addClass(heading, "ptb-section")
+                Gtk.margins(heading, top: 8)
+                Gtk.pack(page, heading)
+            }
+            Gtk.pack(page, chronicleRow(entry, l))
+        }
+    }
+
+    private func chronicleRow(_ entry: ChronicleEntry, _ l: L) -> Widget {
+        let row = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 10)
+        Gtk.addClass(row, "ptb-card")
+        if let speciesID = entry.speciesID,
+           let image = spriteImage("\(speciesID)-\(entry.isShiny)", size: 32)
+            ?? spriteImage("\(speciesID)-false", size: 32) {
+            gtk_widget_set_valign(image, GTK_ALIGN_START)
+            Gtk.pack(row, image)
+        }
+        let text = Gtk.label("<span size='small'>\(Gtk.escape(companion.chronicleLine(entry)))</span>",
+                             wrap: true)
+        gtk_widget_set_valign(text, GTK_ALIGN_CENTER)
+        Gtk.pack(row, text, expand: true)
+        return row
+    }
+
+    /// How many diary entries one build draws. The store keeps more; this bounds the widget count.
+    private static let chronicleLimit = 40
 
     /// Box tab label, carrying the count so a Pokémon waiting in there is visible without opening it.
     private func boxSegmentTitle(_ l: L) -> String {
@@ -829,6 +910,10 @@ final class PopoverWindow {
 
     /// One cell per owned species, 24 to a page — the same 4×6 grid macOS uses.
     private func buildSpeciesDex(into page: Widget, _ l: L) {
+        if let selectedSpecies {
+            Gtk.pack(page, speciesDetailCard(selectedSpecies, l))
+            return
+        }
         let all = companion.dexSpecies
         let species = rarityFilter.map { r in all.filter { $0.rarity == r } } ?? all
         let pageCount = max(1, (species.count + Self.dexPageSize - 1) / Self.dexPageSize)
@@ -843,13 +928,39 @@ final class PopoverWindow {
         Gtk.addClass(total, "ptb-muted")
         Gtk.pack(page, total)
 
-        let grid = gtk_flow_box_new()!
-        let flow = UnsafeMutableRawPointer(grid).assumingMemoryBound(to: GtkFlowBox.self)
-        gtk_flow_box_set_selection_mode(flow, GTK_SELECTION_NONE)
-        gtk_flow_box_set_max_children_per_line(flow, 4)
-        gtk_flow_box_set_min_children_per_line(flow, 4)
-        gtk_flow_box_set_homogeneous(flow, 1)
-        for entry in visible { gtk_container_add(asContainer(grid), speciesCell(entry, l)) }
+        // A `GtkGrid` of buttons rather than a `GtkFlowBox`.
+        //
+        // FlowBox was the natural fit for a wrapping grid, but neither `child-activated` nor
+        // `selected-children-changed` ever fired for a pointer click here, while plain buttons work
+        // everywhere else in this panel. Rather than keep guessing at its event handling, the cells
+        // are buttons — the column count was fixed at 4 anyway, so the wrapping FlowBox provided was
+        // never actually used.
+        let grid = gtk_grid_new()!
+        let g = UnsafeMutableRawPointer(grid).assumingMemoryBound(to: GtkGrid.self)
+        // **Not** column-homogeneous: with a filter leaving two species, homogeneous columns stretch
+        // those two across the full width and the grid stops looking like a grid. A fixed cell width
+        // keeps every cell the same size whatever the filter leaves.
+        gtk_grid_set_row_spacing(g, 6)
+        gtk_grid_set_column_spacing(g, 6)
+        gtk_widget_set_halign(grid, GTK_ALIGN_CENTER)
+        for (index, entry) in visible.enumerated() {
+            let button = gtk_button_new()!
+            gtk_button_set_relief(
+                UnsafeMutableRawPointer(button).assumingMemoryBound(to: GtkButton.self), GTK_RELIEF_NONE)
+            Gtk.addClass(button, "ptb-cell-button")
+            // 4 across the 412pt panel, minus padding and the 6pt gaps.
+            gtk_widget_set_size_request(button, 88, -1)
+            gtk_widget_set_tooltip_text(button, l.dexCellTooltip)
+            gtk_container_add(asContainer(button), speciesCell(entry, l))
+            let speciesID = entry.id
+            gtkConnect(UnsafeMutableRawPointer(button), signal: "clicked",
+                       box: GtkCallbackBox { [weak self] in
+                           guard let self else { return }
+                           self.selectedSpecies = speciesID
+                           self.refresh()
+                       })
+            gtk_grid_attach(g, button, Int32(index % 4), Int32(index / 4), 1, 1)
+        }
         Gtk.pack(page, grid)
 
         guard pageCount > 1 else { return }
@@ -899,6 +1010,90 @@ final class PopoverWindow {
         }
         return cell
     }
+
+    /// The expanded card for one species: which individuals it covers, and what each one was.
+    ///
+    /// The grid folds a species into a single cell on purpose, so two Bulbasaurs raised months apart
+    /// look like one entry. This is where they separate again — nickname, nature, when it was caught,
+    /// and whether it is still being raised.
+    private func speciesDetailCard(_ speciesID: Int, _ l: L) -> Widget {
+        let card = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 8)
+        Gtk.addClass(card, "ptb-card")
+        Gtk.addClass(card, "ptb-hero")
+
+        let species = companion.dexSpecies.first { $0.id == speciesID }
+        let header = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 10)
+        if let image = spriteImage("\(speciesID)-\(species?.isShiny ?? false)", size: 64)
+            ?? spriteImage("\(speciesID)-false", size: 64) {
+            Gtk.pack(header, image)
+        }
+        let titleBox = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 2)
+        gtk_widget_set_valign(titleBox, GTK_ALIGN_CENTER)
+        let shinyMark = (species?.isShiny ?? false) ? "✨ " : ""
+        Gtk.pack(titleBox, Gtk.label(
+            "<span size='large'><b>\(Gtk.escape(shinyMark + (species?.name ?? "#\(speciesID)")))</b></span>"))
+        if let rarity = species?.rarity {
+            let badge = Gtk.label(Gtk.escape(l.rarityLabel(rarity).uppercased()))
+            Gtk.addClass(badge, "ptb-badge")
+            Gtk.addClass(badge, "ptb-rarity-\(rarity.rawValue)")
+            gtk_widget_set_halign(badge, GTK_ALIGN_START)
+            Gtk.pack(titleBox, badge)
+        }
+        Gtk.pack(header, titleBox, expand: true)
+
+        let close = gtk_button_new_with_label(l.dexBackToGrid)!
+        gtk_widget_set_valign(close, GTK_ALIGN_CENTER)
+        gtkConnect(UnsafeMutableRawPointer(close), signal: "clicked",
+                   box: GtkCallbackBox { [weak self] in
+                       self?.selectedSpecies = nil
+                       self?.refresh()
+                   })
+        Gtk.pack(header, close)
+        Gtk.pack(card, header)
+
+        // Every individual whose evolution line passes through this species — the same rule the
+        // grid uses to decide the species is owned at all, so the two views cannot disagree.
+        let individuals = companion.dexEntriesSorted.filter { $0.chainOrder.contains(speciesID) }
+        let count = Gtk.label("<span size='small'>\(Gtk.escape(l.dexIndividualsOwned(individuals.count)))</span>")
+        Gtk.addClass(count, "ptb-muted")
+        Gtk.pack(card, count)
+
+        for entry in individuals.prefix(Self.speciesDetailLimit) {
+            Gtk.pack(card, speciesDetailRow(entry, l))
+        }
+        if individuals.count > Self.speciesDetailLimit {
+            let more = Gtk.label(
+                "<span size='small'>+\(individuals.count - Self.speciesDetailLimit)</span>")
+            Gtk.addClass(more, "ptb-muted")
+            Gtk.pack(card, more)
+        }
+        return card
+    }
+
+    /// One individual inside the species detail.
+    private func speciesDetailRow(_ entry: DexEntry, _ l: L) -> Widget {
+        let row = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 8)
+        var facts: [String] = []
+        if let nature = entry.nature {
+            facts.append(nature.name(companion.language))
+            if let effect = l.natureGrowthEffect(nature) { facts.append(effect) }
+        }
+        if let caughtAt = entry.caughtAt {
+            facts.append(Self.dateFormatter(companion.language).string(from: caughtAt))
+        } else if companion.isRaisingDexEntry(entry) {
+            facts.append(l.dexRaising)
+        }
+        let name = entry.nickname ?? l.dexIndividualUnnamed
+        Gtk.pack(row, Gtk.label("<span size='small'><b>\(Gtk.escape(name))</b></span>"))
+        let detail = Gtk.label("<span size='small'>\(Gtk.escape(facts.joined(separator: " · ")))</span>",
+                               wrap: true)
+        Gtk.addClass(detail, "ptb-muted")
+        Gtk.pack(row, detail, expand: true)
+        return row
+    }
+
+    /// How many individuals the detail card lists before collapsing into a count.
+    private static let speciesDetailLimit = 8
 
     /// Every individual caught, newest first, with its line, rarity, nature and capture date.
     private func buildCatchLog(into page: Widget, _ l: L) {

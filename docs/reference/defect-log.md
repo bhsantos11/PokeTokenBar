@@ -427,6 +427,19 @@ read_when:
   `testTransferDayTokensStillCountAfterRebase` — 재정렬 없는 대조군을 같이 돌려 결함 조건이 살아 있는지도
   함께 확인한다(테스트가 트리거 브랜치를 실제로 밟는지 보증).
 
+## XCTest on Linux (swift-corelibs-xctest)
+
+- **`@MainActor` 클래스의 *동기* 테스트 메서드는 테스트 발견 단계에서 프로세스를 죽인다.**
+  `--dump-tests-json` 이 `signalled(6)` 로 죽고 메시지는
+  `Could not cast value of type '(Tests) -> @Swift.MainActor () -> ()' to '(Tests) -> () -> ()'` 다.
+  스택은 생성된 `allTests()` 를 가리키므로 **어느 테스트가 원인인지 안 알려 준다** — 방금 추가한
+  파일을 의심하는 수밖에 없다. 두 번 겪었다(BoxTests, ChronicleTests).
+  - 해결: `@MainActor` 테스트 클래스의 메서드는 **전부 `async` 로** 선언한다. 비동기 메서드는 다른
+    thunk 로 감싸여 이 캐스팅을 타지 않는다. 기존 통과하던 파일에 동기 메서드가 섞여 있어도, 새로
+    추가하는 것은 async 로 맞춘다.
+  - 증상이 "빌드는 되는데 테스트 실행이 통째로 죽는다"라 컴파일 오류로 오인하기 쉽다. 빌드가
+    성공했는데 `swift test` 가 signal 4/6 으로 죽으면 이 부류를 먼저 본다.
+
 ## Test environment assumptions
 
 > This section is written in English — see `CLAUDE.md` §기여 언어 규약 (English-first).

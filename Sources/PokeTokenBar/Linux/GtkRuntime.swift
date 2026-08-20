@@ -137,6 +137,48 @@ func gtkConnect(
         destroy,
         GConnectFlags(rawValue: 0))
 }
+/// Connect `GtkFlowBox::child-activated`, whose handler takes **(flowbox, child, user_data)**.
+///
+/// Needs its own helper for the reason spelled out on `gtkConnect`: the arity must match exactly,
+/// and this signal carries the activated child in the middle slot. The child is handed to the box
+/// as its index, which is the only stable way to map back to the model — the widget pointers are
+/// rebuilt on every refresh.
+///
+/// `child-activated` rather than `selected-children-changed`: selection only changes when the box
+/// is in a selecting mode, and a grid of cells that highlight after a click reads as a form control
+/// rather than a list of things to open.
+@discardableResult
+func gtkConnectChildActivated(
+    _ instance: UnsafeMutableRawPointer, box: GtkIndexCallbackBox
+) -> gulong {
+    assertSignalArity(instance, "child-activated", expectedParameters: 1)
+    let callback: @convention(c) (
+        UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?
+    ) -> Void = { _, child, data in
+        guard let data, let child else { return }
+        let index = Int(gtk_flow_box_child_get_index(
+            child.assumingMemoryBound(to: GtkFlowBoxChild.self)))
+        Unmanaged<GtkIndexCallbackBox>.fromOpaque(data).takeUnretainedValue().run(index)
+    }
+    let destroy: @convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<GClosure>?) -> Void = {
+        data, _ in
+        guard let data else { return }
+        Unmanaged<GtkIndexCallbackBox>.fromOpaque(data).release()
+    }
+    return g_signal_connect_data(
+        instance, "child-activated",
+        unsafeBitCast(callback, to: GCallback.self),
+        box.opaque, destroy, GConnectFlags(rawValue: 0))
+}
+
+/// A callback that receives the activated child's index. Same ownership contract as
+/// `GtkCallbackBox`: an opaque +1 retain that GTK releases when the widget dies.
+final class GtkIndexCallbackBox {
+    let run: (Int) -> Void
+    init(_ run: @escaping (Int) -> Void) { self.run = run }
+    var opaque: UnsafeMutableRawPointer { Unmanaged.passRetained(self).toOpaque() }
+}
+
 /// Connect a window's `delete-event` (the close button).
 ///
 /// Separate from `gtkConnect` because this signal's handler returns `gboolean`, and returning TRUE

@@ -586,6 +586,9 @@ struct CompanionState: Codable, Sendable {
     /// 경우("품은 알" 또는 "보류된 알"에 붙어 있을 때)와 유출을 데이터로 구분할 수 있게 되어
     /// sanitized 의 가드는 그대로 살아 있다.
     var heldEgg: HeldEgg?
+    /// 동행의 일지 — 부화·진화·졸업·박스 출입 같은 사건 기록. 최신이 앞.
+    /// 사건만 담고 문장은 읽을 때 만든다(`ChronicleCopy`) — 언어를 바꿔도 과거가 옛 언어로 굳지 않게.
+    var chronicle: [ChronicleEntry] = []
     // 도감
     var dex: [DexEntry] = []
     // 소유한 (base,final) 쌍 — 분기 다양성용
@@ -631,6 +634,10 @@ struct CompanionState: Codable, Sendable {
         // 개체를 잃지 않으려고 만든 기능이 개체를 잃는 가장 그럴듯한 방식이라 회귀 테스트로 잠갔다.
         boxed              = c.lenient([Lossy<MonState>].self, forKey: .boxed, default: []).compactMap(\.value)
         heldEgg            = c.lenientOptional(HeldEgg.self, forKey: .heldEgg)
+        // 항목별 격리(도감·박스와 동일) — 사건 하나가 깨져도 일지 전체를 잃지 않는다.
+        // 이 줄이 없으면 일지는 저장만 되고 다음 기동에 사라진다(손수 쓴 디코더의 상습 함정).
+        chronicle          = c.lenient([Lossy<ChronicleEntry>].self, forKey: .chronicle,
+                                       default: []).compactMap(\.value)
         collectedFinals    = c.lenient(Set<String>.self, forKey: .collectedFinals, default: [])
         language           = c.lenient(AppLanguage.self, forKey: .language, default: .systemDefault)
         inventory          = c.lenient([String: Int].self, forKey: .inventory, default: [:])

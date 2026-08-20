@@ -147,7 +147,11 @@ final class CompanionStore {
     func setNickname(_ raw: String?) -> Bool {
         guard state.active != nil else { return false }
         let trimmed = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        state.active!.nickname = trimmed.isEmpty ? nil : String(trimmed.prefix(Self.nicknameMaxLength))
+        let newName = trimmed.isEmpty ? nil : String(trimmed.prefix(Self.nicknameMaxLength))
+        let changed = newName != state.active!.nickname
+        state.active!.nickname = newName
+        // 이름을 지운 것은 사건이 아니다 — 일지에 "이름을 없앴어요"가 남으면 읽는 재미가 없다.
+        if changed, newName != nil { chronicle(.renamed, mon: state.active) }
         save()
         return true
     }
@@ -155,6 +159,41 @@ final class CompanionStore {
     /// 애칭 길이 상한(문자 수). `nonisolated` 인 이유: 세이브 정규화(`SaveTransfer.sanitized`)가
     /// MainActor 밖에서 같은 상한을 써야 하고, 두 벌로 두면 한쪽만 바뀌어 갈라진다.
     nonisolated static let nicknameMaxLength = 24
+
+    // MARK: 일지 기록
+
+    /// 사건 하나를 일지에 남긴다. **저장은 호출부가 이미 하는 save() 에 맡긴다** — 여기서 또 쓰면
+    /// 한 사건에 디스크 쓰기가 두 번 난다.
+    private func chronicle(_ kind: ChronicleEntry.Kind, mon: MonState?, to: Int? = nil) {
+        let entry = ChronicleEntry(at: clock(), kind: kind,
+                                   speciesID: mon?.currentID, toSpeciesID: to,
+                                   nickname: mon?.nickname, rarity: mon?.rarity,
+                                   isShiny: mon.map(Self.displayShiny) ?? false)
+        state.chronicle = Chronicle.appending(entry, to: state.chronicle)
+    }
+
+    var chronicleEntries: [ChronicleEntry] { state.chronicle }
+
+    /// 일지 표시용 한 줄 — 사건 + 그날의 시각 + 그때의 이름으로 문장을 만든다.
+    func chronicleLine(_ entry: ChronicleEntry) -> String {
+        let hour = Calendar.current.component(.hour, from: entry.at)
+        let when = l.dayPart(DayPart.of(hour: hour))
+        let name = entry.nickname ?? entry.speciesID.map(speciesName) ?? l.dexIndividualUnnamed
+        return l.chronicleLine(entry.kind, when: when, name: name,
+                               to: entry.toSpeciesID.map(speciesName), shiny: entry.isShiny)
+    }
+
+    /// 종 번호 → 이름(알고 있으면). 활성 라인 → 도감 저장분 → 세션 캐시 → 번호 순으로 본다.
+    func speciesName(_ id: Int) -> String {
+        if let line = currentLine, let name = line.names[id],
+           let resolved = state.language.resolveName(name) { return resolved }
+        for entry in state.dex {
+            if let names = entry.names?[id], let resolved = state.language.resolveName(names) {
+                return resolved
+            }
+        }
+        return resolvedSpeciesNames[id] ?? "#\(id)"
+    }
 
     // MARK: 쓰다듬기 (클릭 반응)
 
@@ -630,6 +669,8 @@ final class CompanionStore {
                 state.active!.stageIndex += 1
                 state.active!.usedAtStage = a.usedAtStage - thr   // 초과분 이월
                 let newName = line.localizedName(next.speciesID, state.language)
+                // 진화 **전** 종을 주인공으로 남긴다 — "이상해씨가 이상해풀로 진화했어요" 가 되도록.
+                chronicle(.evolved, mon: a, to: next.speciesID)
                 justEvolvedTo = newName
                 fireCelebration(.evolve)
                 // 짧은 levelUp 창 — 진화 순간 "…(으)로 진화했어요" 문구 노출(hatch/graduate 와 동일 패턴).
@@ -714,6 +755,7 @@ final class CompanionStore {
                                       Dictionary(uniqueKeysWithValues:
                                           a.pathIDs.compactMap { id in line.names[id].map { (id, $0) } })
                                   }))
+        chronicle(.graduated, mon: a)
         let name = currentLine?.localizedName(finalID, state.language) ?? ""
         justGraduated = name
         notifyCompanionEvent(l.notifGraduateTitle, l.notifGraduateBody(name))
@@ -900,7 +942,10 @@ final class CompanionStore {
         state.spentTokens += FreshEgg.price(guaranteeing: tier)
         // 폐기가 아니라 **박스로 보낸다**(2026-08-19 이후). 졸업이 아니므로 dex/collectedFinals 는
         // 여전히 안 건드린다 — 도감은 졸업의 기록이고, 박스는 아직 키우는 중인 개체가 사는 곳이다.
-        if let active = state.active { state.boxed.append(active) }
+        if let active = state.active {
+            state.boxed.append(active)
+            chronicle(.boxed, mon: active)
+        }
         state.active = nil
         state.eggUsage = 0            // 새 알은 처음부터 인큐베이션(재부화에 5M 필요)
         state.eggTier = tier          // 등급 보증(nil = 보증 없음)
@@ -974,6 +1019,7 @@ final class CompanionStore {
         }
         state.active = state.boxed.remove(at: index)
         beginNewActiveSubject()
+        chronicle(.withdrawn, mon: state.active)
         AppLog.write("box: withdrew base=\(state.active?.baseID ?? -1) boxCount=\(state.boxed.count) heldEgg=\(state.heldEgg != nil)")
         save()
         Task { await self.loadCurrentLine() }
@@ -1222,6 +1268,7 @@ final class CompanionStore {
         state.active = MonState(baseID: line.baseID, pathIDs: [line.baseID], plannedPathIDs: evolutionPlan,
                                 stageIndex: 0, usedAtStage: 0, rarity: line.rarity, totalForms: evolutionPlan.count,
                                 isShiny: isShiny, nature: nature, dittoDisguise: dittoDisguise)
+        chronicle(.hatched, mon: state.active)
         AppLog.write("hatch: base=\(line.baseID) rarity=\(line.rarity) shiny=\(isShiny) forms=\(evolutionPlan.count) ditto=\(dittoDisguise != nil)")
         let name = line.localizedName(line.baseID, state.language)
         notifyCompanionEvent(showShiny ? l.notifShinyHatchTitle : l.notifHatchTitle,
@@ -1267,6 +1314,7 @@ final class CompanionStore {
         let shiny = m.isShiny
         state.active = m
         currentLine = dittoLine
+        chronicle(.dittoRevealed, mon: m)
         AppLog.write("ditto reveal: disguise=\(m.dittoDisguise ?? -1) → ditto rarity=\(dittoLine.rarity) shiny=\(shiny)")
         fireCelebration(.dittoReveal(shiny: shiny))
         displayState = .levelUp

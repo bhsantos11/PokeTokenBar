@@ -183,6 +183,13 @@ enum SaveTransfer {
         // — 그때는 이미 저장된 값이라 재기동해도 같은 파일을 읽어 다시 죽는다.
         s.active = s.active.map(sanitizedMon)
         s.boxed = s.boxed.map(sanitizedMon)
+        // 일지도 외부 입력이다 — 손편집 세이브가 수만 건을 넣으면 화면과 저장이 함께 무거워진다.
+        // 애칭과 같은 상한을 걸고(문자 수), 개수는 앱이 쓰는 상한으로 자른다.
+        s.chronicle = s.chronicle.prefix(Chronicle.maxEntries).map { entry in
+            var e = entry
+            e.nickname = e.nickname.map { String($0.prefix(CompanionStore.nicknameMaxLength)) }
+            return e
+        }
         return s
     }
 

@@ -7,8 +7,8 @@ Two tracks, tracked in one file because they share the same Core.
   verification on a real panel rather than construction.
 - **Track B — Gameplay.** The game is currently monotonic: usage only goes up, nothing is ever at
   risk, and the only decision is which item to buy. These are the changes that give it choices,
-  rhythm and texture. **G1, G2, G3, G5 and G6 are built** (Linux); G4 is still blocked on a design
-  decision. Each carries a macOS gap, since that half cannot be built or verified on this machine.
+  rhythm and texture. **G1, G2, G3, G5, G6, G7 and G8 are built** (Linux); G4 is still blocked on a
+  design decision. Each carries a macOS gap, since that half cannot be built or verified on this machine.
 
 Everything below is **buildable** — the two genuinely impossible items (dragging the floating pet,
 anchoring the window to the tray icon) are Wayland restrictions and are recorded at the bottom
@@ -192,6 +192,34 @@ earlier — which had been hiding how much dead space the layout carried.
 
 **Not done, deliberately.** Affection-from-petting was offered and declined — it would turn a
 free interaction into a daily chore.
+
+### Phase G7 — The Chronicle  ✅ built, verified on screen
+Invented 2026-08-19 under a standing brief to keep inventing. The app already witnesses a small life
+— eggs hatch, Pokémon evolve, get named, go to the Box and come back — but none of it was kept. The
+Chronicle writes that life down.
+
+- [x] `ChronicleEntry` records **events, not sentences** — switching the app language rewrites the
+      whole history rather than leaving old entries frozen in the language they happened in
+- [x] Sentences are built at read time from the event plus its **time of day**, so it reads as a
+      diary ("late one night, Bulbasaur came back to your side") rather than a log
+- [x] Recorded at every point that matters: hatch (with a distinct line for a shiny), evolution,
+      graduation, Box in and out, naming, and the Ditto reveal
+- [x] Past entries keep the **name they were written with** — renaming later does not rewrite history
+- [x] Naming records an event; *clearing* a name does not, so the diary is not filled with erasures
+- [x] Capped at 200 entries, oldest dropped, and bounded again at the import boundary
+- [x] A fourth Collection segment, grouped under date headings, with the sprite of whoever it was about
+- [x] Regression tests (9), including surviving a reload from disk with the omission injected
+
+### Phase G8 — Pokédex detail  ✅ built, verified on screen
+- [x] Clicking a Pokédex cell opens the individuals behind it — nickname, nature and its growth
+      effect, catch date, and whether it is still being raised
+- [x] Species names now resolve for boxed Pokémon, which previously showed as `#25` in both the grid
+      and the Box, via a session cache filled by the lookups the catch log already performs
+- [x] The grid is a `GtkGrid` of buttons rather than a `GtkFlowBox`: neither `child-activated` nor
+      `selected-children-changed` proved usable for a pointer click here, and the column count was
+      fixed at 4 anyway, so the wrapping FlowBox provided was never used
+- [x] Cells keep a fixed width, so a filter leaving two species no longer stretches them to half the
+      panel each
 
 ### Phase G4 — Trade cards
 `SaveTransfer` already exports, imports, summarises, confirms and sanitises a whole save. A

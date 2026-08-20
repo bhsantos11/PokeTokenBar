@@ -45,6 +45,16 @@ enum PopoverStyle {
           min-width: 0;
         }
         .ptb-sprite-button:hover { background-color: alpha(@theme_fg_color, 0.10); border-radius: 12px; }
+        /* Dex cells are buttons so they can be opened; they must keep reading as grid cells. */
+        .ptb-cell-button {
+          background: none;
+          border: none;
+          box-shadow: none;
+          padding: 0;
+          min-height: 0;
+          min-width: 0;
+        }
+        .ptb-cell-button:hover { background-color: alpha(@theme_fg_color, 0.10); border-radius: 10px; }
         /* Rarity accents. The badge was one flat grey for every tier, so the rarest thing a player
            owns looked exactly like the commonest. Colours match the dex chips on macOS. */
         .ptb-rarity-common    { background-color: alpha(#8f9aa6, 0.35); }

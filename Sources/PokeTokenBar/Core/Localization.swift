@@ -459,6 +459,81 @@ struct L {
     var save: String { t("저장", "Save", "保存", "Guardar") }
     var renameTooltip: String { t("눌러서 이름 바꾸기", "Click to rename", "クリックで名前を変更", "Clic para renombrar") }
     var petTooltip: String { t("눌러서 쓰다듬기", "Click to pet", "クリックでなでる", "Clic para acariciar") }
+    // MARK: 일지(Chronicle) — 사건을 문장으로. 저장은 사건만 하고 문장은 읽을 때 만든다.
+    var chronicleTitle: String { t("일지", "Chronicle", "日誌", "Crónica") }
+    var chronicleEmptyTitle: String { t("아직 쓸 이야기가 없어요", "Nothing to tell yet", "まだ物語がありません", "Todavía no hay historia") }
+    var chronicleEmptyHint: String {
+        t("알이 깨고 포켓몬이 자라면 여기에 하나씩 적혀요.",
+          "Once your egg hatches and your Pokémon grows, it gets written down here.",
+          "タマゴが孵り、ポケモンが育つとここに書き留められます。",
+          "Cuando tu huevo eclosione y tu Pokémon crezca, se anotará aquí.")
+    }
+
+    /// 하루 중 언제 — 일지가 로그가 아니라 일기처럼 읽히게 하는 도입부.
+    func dayPart(_ part: DayPart) -> String {
+        switch part {
+        case .earlyMorning: return t("이른 아침", "early one morning", "早朝に", "de madrugada")
+        case .morning:      return t("오전", "one morning", "午前中に", "una mañana")
+        case .afternoon:    return t("오후", "one afternoon", "午後に", "una tarde")
+        case .evening:      return t("저녁", "one evening", "夕方に", "al anochecer")
+        case .night:        return t("늦은 밤", "late one night", "夜遅くに", "bien entrada la noche")
+        }
+    }
+
+    /// 사건 한 줄. `when` 은 위 `dayPart`, `name` 은 그때의 이름.
+    func chronicleLine(_ kind: ChronicleEntry.Kind, when: String, name: String,
+                       to: String?, shiny: Bool) -> String {
+        switch kind {
+        case .hatched:
+            return shiny
+                ? t("\(when), 알에서 \(name)이(가) 나왔어요 — 이로치였어요!",
+                    "\(when), \(name) hatched — and came out shiny!",
+                    "\(when)、タマゴから \(name) が生まれました — 色違いでした！",
+                    "\(when), \(name) eclosionó — ¡y salió variocolor!")
+                : t("\(when), 알에서 \(name)이(가) 나왔어요.",
+                    "\(when), \(name) hatched from the egg.",
+                    "\(when)、タマゴから \(name) が生まれました。",
+                    "\(when), \(name) salió del huevo.")
+        case .evolved:
+            return t("\(when), \(name)이(가) \(to ?? "")(으)로 진화했어요.",
+                     "\(when), \(name) evolved into \(to ?? "").",
+                     "\(when)、\(name) が \(to ?? "") に進化しました。",
+                     "\(when), \(name) evolucionó a \(to ?? "").")
+        case .graduated:
+            return t("\(when), \(name)이(가) 여정을 마치고 도감에 올랐어요.",
+                     "\(when), \(name) finished its journey and joined the Pokédex.",
+                     "\(when)、\(name) が旅を終えて図鑑に載りました。",
+                     "\(when), \(name) terminó su viaje y entró en la Pokédex.")
+        case .boxed:
+            return t("\(when), \(name)이(가) 박스에서 쉬러 갔어요.",
+                     "\(when), \(name) went to rest in the Box.",
+                     "\(when)、\(name) はボックスで休むことになりました。",
+                     "\(when), \(name) se fue a descansar a la Caja.")
+        case .withdrawn:
+            return t("\(when), \(name)이(가) 다시 곁으로 돌아왔어요.",
+                     "\(when), \(name) came back to your side.",
+                     "\(when)、\(name) が再びそばに戻りました。",
+                     "\(when), \(name) volvió a tu lado.")
+        case .renamed:
+            return t("\(when), 이름을 \(name)(으)로 지어 주었어요.",
+                     "\(when), you named it \(name).",
+                     "\(when)、\(name) と名づけました。",
+                     "\(when), le pusiste el nombre \(name).")
+        case .dittoRevealed:
+            return t("\(when), \(name)의 정체가 드러났어요 — 메타몽이었어요!",
+                     "\(when), \(name) revealed itself — it was a Ditto all along!",
+                     "\(when)、\(name) の正体が明らかに — メタモンでした！",
+                     "\(when), \(name) se reveló — ¡era un Ditto!")
+        }
+    }
+
+    var dexCellTooltip: String { t("눌러서 자세히 보기", "Click for details", "クリックで詳細", "Clic para ver detalles") }
+    var dexBackToGrid: String { t("닫기", "Close", "閉じる", "Cerrar") }
+    var dexIndividualUnnamed: String { t("이름 없음", "Unnamed", "名前なし", "Sin nombre") }
+    func dexIndividualsOwned(_ count: Int) -> String {
+        t("이 종으로 \(count)마리", "\(count) individual\(count == 1 ? "" : "s")",
+          "この種で \(count) 匹", "\(count) ejemplar\(count == 1 ? "" : "es")")
+    }
 
     // MARK: 성격 효과 (G3) — 보이지 않는 성장 속도 차이는 결함으로 읽힌다
     /// 성격이 성장 속도에 주는 효과. 1.0 배(17종)면 nil — 붙일 말이 없다.
