@@ -377,6 +377,10 @@ final class SettingsWindow {
         gtk_combo_box_set_active(
             UnsafeMutableRawPointer(combo).assumingMemoryBound(to: GtkComboBox.self), Int32(selected))
         gtk_widget_set_valign(combo, GTK_ALIGN_CENTER)
+        // Same hazard as the sliders: a combo box changes its selection on scroll, so scrolling the
+        // page over "Language" would quietly switch the app's language. This is a class of bug, not
+        // a one-off — every scroll-sensitive control inside a scrolled page needs the same treatment.
+        gtkConnectScrollPassthrough(UnsafeMutableRawPointer(combo))
         gtkConnect(UnsafeMutableRawPointer(combo), signal: "changed",
                    box: GtkCallbackBox { [weak self] in
                        guard let self, !self.isPopulating else { return }
