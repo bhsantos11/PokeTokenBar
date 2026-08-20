@@ -59,7 +59,7 @@ final class ChronicleTests: XCTestCase {
     /// 모든 사건 종류가 문장을 갖는다 — 빠지면 그 사건은 일지에서 빈 줄이 된다.
     func testEveryEventKindRendersASentence() async {
         let l = L(.en)
-        for kind in ChronicleEntry.Kind.allCases {
+        for kind in ChronicleEntry.Kind.allCases {   // 새 사건 종류가 늘면 여기서 먼저 걸린다
             let line = l.chronicleLine(kind, when: "one afternoon", name: "Sprout",
                                        to: "Ivysaur", shiny: false)
             XCTAssertFalse(line.isEmpty, "\(kind) 문장 없음")

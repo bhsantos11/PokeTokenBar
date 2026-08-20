@@ -28,6 +28,8 @@ final class PopoverWindow {
     private enum ConfirmTarget: Equatable {
         case shop(ShopEntry)
         case bag(ItemKind)
+        /// Releasing a boxed Pokémon, by index. Irreversible, so it goes through the same ladder.
+        case release(Int)
     }
 
     /// The action awaiting confirmation and the steps it still has to clear, or nil when nothing is
@@ -1247,9 +1249,13 @@ final class PopoverWindow {
         let shinyMark = shiny ? "✨ " : ""
         let name = companion.boxedDisplayName(mon)
         Gtk.pack(text, Gtk.label("<b>\(Gtk.escape(shinyMark + name))</b>"))
-        let meta = Gtk.label("<span size='small'>\(Gtk.escape(l.rarityLabel(mon.rarity))) · "
-            + "\(Gtk.escape(l.stage(mon.stageIndex + 1, mon.totalForms)))</span>")
-        Gtk.addClass(meta, "ptb-muted")
+        // While the release is armed, this line carries the question — the same place the shop and
+        // bag put theirs, so the confirmation always appears where the description was.
+        let metaText = armedStep(for: .release(index)) != nil
+            ? l.boxReleaseConfirm(name)
+            : "\(l.rarityLabel(mon.rarity)) · \(l.stage(mon.stageIndex + 1, mon.totalForms))"
+        let meta = Gtk.label("<span size='small'>\(Gtk.escape(metaText))</span>", wrap: true)
+        Gtk.addClass(meta, armedStep(for: .release(index)) != nil ? "ptb-warning" : "ptb-muted")
         Gtk.pack(text, meta)
         // Growth is the whole reason the Box beats a discard — show that it survived.
         let growth = Gtk.label("<span size='small'>\(Gtk.escape(l.boxGrowth)) "
@@ -1257,6 +1263,30 @@ final class PopoverWindow {
         Gtk.addClass(growth, "ptb-muted")
         Gtk.pack(text, growth)
         Gtk.pack(row, text, expand: true)
+
+        // Releasing is the one irreversible action left in the app, so it uses the confirmation
+        // ladder the shop and bag use rather than acting on a single click.
+        if armedStep(for: .release(index)) != nil {
+            Gtk.pack(row, confirmControls(label: l.boxRelease, destructive: true, l) { [weak self] in
+                guard let self, self.advanceConfirm(.release(index)) else { return }
+                _ = self.companion.release(at: index)
+                Task { @MainActor in await self.loadSpritesAndRefresh() }
+            })
+            return row
+        }
+
+        let releaseButton = gtk_button_new_with_label(l.boxRelease)!
+        gtk_button_set_relief(
+            UnsafeMutableRawPointer(releaseButton).assumingMemoryBound(to: GtkButton.self), GTK_RELIEF_NONE)
+        gtk_widget_set_valign(releaseButton, GTK_ALIGN_CENTER)
+        Gtk.addClass(releaseButton, "ptb-muted")
+        gtkConnect(UnsafeMutableRawPointer(releaseButton), signal: "clicked",
+                   box: GtkCallbackBox { [weak self] in
+                       guard let self else { return }
+                       self.pendingConfirm = (.release(index), [.confirm])
+                       self.refresh()
+                   })
+        Gtk.pack(row, releaseButton)
 
         let button = gtk_button_new_with_label(l.boxWithdraw)!
         gtk_widget_set_valign(button, GTK_ALIGN_CENTER)

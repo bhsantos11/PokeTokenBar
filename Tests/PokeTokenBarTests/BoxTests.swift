@@ -238,6 +238,47 @@ final class BoxTests: XCTestCase {
         }
     }
 
+    // MARK: 놓아주기
+
+    /// 놓아주면 박스에서 사라지고 **일지에는 남는다** — 함께 있었다는 사실까지 지우지는 않는다.
+    func testReleaseRemovesFromTheBoxButKeepsTheRecord() async {
+        let s = store(boxed: [monJSON(25, grown: 7), monJSON(100, grown: 9)])
+        XCTAssertTrue(s.release(at: 0))
+        XCTAssertEqual(s.state.boxed.map(\.baseID), [100], "고른 개체만 사라져야 한다")
+        XCTAssertEqual(s.chronicleEntries.first?.kind, .released)
+        XCTAssertEqual(s.chronicleEntries.first?.speciesID, 25)
+    }
+
+    /// 범위 밖 인덱스는 조용히 거절한다 — 목록이 바뀐 뒤 늦게 도착한 클릭이 **엉뚱한 개체를 놓아주면**
+    /// 그건 되돌릴 수 없는 사고다.
+    func testReleaseRejectsAnOutOfRangeIndex() async {
+        let s = store(boxed: [monJSON(25)])
+        XCTAssertFalse(s.release(at: 5))
+        XCTAssertFalse(s.release(at: -1))
+        XCTAssertEqual(s.state.boxed.count, 1)
+    }
+
+    /// 놓아주기는 활성 개체나 도감을 건드리지 않는다.
+    func testReleaseTouchesNothingElse() async {
+        let s = store(boxed: [monJSON(25)])
+        let activeBefore = s.state.active?.baseID
+        let dexBefore = s.state.dex.count
+        XCTAssertTrue(s.release(at: 0))
+        XCTAssertEqual(s.state.active?.baseID, activeBefore)
+        XCTAssertEqual(s.state.dex.count, dexBefore)
+    }
+
+    /// 놓아준 뒤 디스크 왕복 — 되살아나지 않는다.
+    func testReleaseSurvivesAReload() async {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("box-release-\(UUID().uuidString).json")
+        let s = store(boxed: [monJSON(25), monJSON(100)], url: url)
+        XCTAssertTrue(s.release(at: 0))
+        let reloaded = CompanionStore(provider: BoxNoProvider(), clock: { self.now },
+                                      fileURL: url, rng: SeededRNG(seed: 7))
+        XCTAssertEqual(reloaded.state.boxed.map(\.baseID), [100])
+    }
+
     // MARK: 화면용 파생값
 
     /// 박스에 넣은 개체는 도감 화면에서 **사라지면 안 된다** — 사라지면 잃은 것과 구별이 안 된다.

@@ -383,6 +383,13 @@ struct L {
           "Compra un huevo y tu Pokémon actual vendrá aquí. Puedes recuperarlo cuando quieras.")
     }
     var boxWithdraw: String { t("데리고 나가기", "Take out", "つれていく", "Sacar") }
+    var boxRelease: String { t("놓아주기", "Release", "にがす", "Soltar") }
+    func boxReleaseConfirm(_ name: String) -> String {
+        t("\(name)을(를) 놓아줄까요? 되돌릴 수 없어요.",
+          "Release \(name)? This cannot be undone.",
+          "\(name) をにがしますか？ 取り消せません。",
+          "¿Soltar a \(name)? No se puede deshacer.")
+    }
     /// 교대라는 점을 버튼 옆에서 알린다 — 누르면 지금 개체가 박스로 들어간다.
     func boxSwapHint(_ name: String) -> String {
         t("\(name)은(는) 박스로 들어가요", "\(name) goes into the Box", "\(name) はボックスに入ります",
@@ -611,6 +618,11 @@ struct L {
                      "\(when), you named it \(name).",
                      "\(when)、\(name) と名づけました。",
                      "\(when), le pusiste el nombre \(name).")
+        case .released:
+            return t("\(when), \(name)을(를) 놓아주었어요.",
+                     "\(when), you released \(name).",
+                     "\(when)、\(name) をにがしました。",
+                     "\(when), soltaste a \(name).")
         case .dittoRevealed:
             return t("\(when), \(name)의 정체가 드러났어요 — 메타몽이었어요!",
                      "\(when), \(name) revealed itself — it was a Ditto all along!",

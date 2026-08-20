@@ -25,7 +25,7 @@ struct ChronicleEntry: Codable, Sendable, Identifiable, Equatable {
     var hour: Int?
 
     enum Kind: String, Codable, Sendable, CaseIterable {
-        case hatched, evolved, graduated, boxed, withdrawn, renamed, dittoRevealed
+        case hatched, evolved, graduated, boxed, withdrawn, renamed, dittoRevealed, released
     }
 }
 

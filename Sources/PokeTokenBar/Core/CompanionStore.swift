@@ -1140,6 +1140,23 @@ final class CompanionStore {
         return true
     }
 
+    /// 박스에서 개체를 **놓아준다** — 되돌릴 수 없다.
+    ///
+    /// 박스가 무제한이라 넣기만 하면 영영 쌓인다. 놓아주기가 없으면 "정리"라는 선택지 자체가 없고,
+    /// 세이브도 단조 증가한다(가져오기 상한 8MiB 가 실제 벽이다).
+    ///
+    /// 폐기와 다른 점은 **사용자가 그 개체를 골라서, 확인을 거쳐** 한다는 것이다 — 2026-08-19 의
+    /// 사고는 고르지도 확인하지도 않은 폐기였다. 일지에는 남는다: 함께 있었다는 사실까지 지우지는 않는다.
+    @discardableResult
+    func release(at index: Int) -> Bool {
+        guard state.boxed.indices.contains(index) else { return false }
+        let released = state.boxed.remove(at: index)
+        chronicle(.released, mon: released)
+        AppLog.write("box: released base=\(released.baseID) boxCount=\(state.boxed.count)")
+        save()
+        return true
+    }
+
     /// 보류해 둔 알로 돌아간다 — 지금 개체를 박스에 넣고, 치워 뒀던 알을 다시 품는다.
     /// **보류된 알이 있을 때만** 가능하다. 조건 없이 열어 두면 위 `withdraw` 주석의 공짜 알이 된다.
     var canReturnToHeldEgg: Bool {

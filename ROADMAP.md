@@ -103,6 +103,13 @@ and gives the shop egg an honest identity — a swap rather than a trap.
 - [ ] **Box UI on macOS** — the Core work is shared and done, but the SwiftUI view does not exist.
       Cannot be built or verified on this machine. **owner: Bernardo** (needs a Mac).
 
+**Extended 2026-08-20.** Added a deliberate **release** from the Box. Unlimited capacity means the
+Box only ever grows, so there was no way to let go of an individual — and no ceiling on the save
+short of the 8 MiB import limit. Release goes through the same confirmation ladder as the shop, is
+recorded in the Chronicle (letting go is part of the story; erasing the record is not), and sits as
+a quiet text button beside the prominent *Take out*, because the irreversible action should not be
+the loudest thing in the row.
+
 **Decisions taken 2026-08-19 (Bernardo).** Unlimited capacity; free withdrawal (the 1B egg price is
 already the cost); graduation still goes straight to the Pokédex; the shop egg always deposits, so
 the destructive path is gone rather than merely confirmed.
