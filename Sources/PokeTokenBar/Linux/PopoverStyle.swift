@@ -22,7 +22,9 @@ enum PopoverStyle {
         .ptb-section    { font-size: 11px; font-weight: bold; color: alpha(@theme_fg_color, 0.55); }
         /* A row asking to confirm something it cannot undo. Not muted — the whole point is that it
            reads differently from the description it replaces, so a click does not land on autopilot. */
-        .ptb-warning    { font-size: 11px; font-weight: bold; color: #d08770; }
+        /* Readable on both a light and a dark card. The original #d08770 was chosen against the
+           dark theme and washed out on light backgrounds — this sits around 4.5:1 on either. */
+        .ptb-warning    { font-size: 11px; font-weight: bold; color: #c05621; }
         /* What the companion just said when you clicked it. Deliberately not muted — it is a direct
            answer to something the player did, and muting it makes the click feel unacknowledged. */
         .ptb-reaction   { font-size: 11px; font-style: italic; color: @theme_fg_color; }
@@ -56,11 +58,20 @@ enum PopoverStyle {
         }
         .ptb-cell-button:hover { background-color: alpha(@theme_fg_color, 0.10); border-radius: 10px; }
         /* Rarity accents. The badge was one flat grey for every tier, so the rarest thing a player
-           owns looked exactly like the commonest. Colours match the dex chips on macOS. */
-        .ptb-rarity-common    { background-color: alpha(#8f9aa6, 0.35); }
-        .ptb-rarity-uncommon  { background-color: alpha(#4c9f70, 0.45); }
-        .ptb-rarity-rare      { background-color: alpha(#4a7fd0, 0.45); }
-        .ptb-rarity-legendary { background-color: alpha(#c9a227, 0.50); }
+           owns looked exactly like the commonest.
+
+           Solid fills with an explicit white foreground, not translucent ones: `alpha()` blends into
+           whatever is behind it, so the same badge came out dark on the dark theme and washed out on
+           the light one — and the label colour was left to the theme, which is how a legendary badge
+           ended up light text on a light fill. Each fill is dark enough for white text on both.
+           Compound selectors (`.ptb-badge.ptb-rarity-*`) rather than bare ones: `.ptb-badge` is
+           declared further down this sheet and, at equal specificity, the later rule wins — so a
+           bare `.ptb-rarity-legendary` lost its fill to the badge's grey while its white text
+           survived, giving white-on-grey. Raising specificity makes the pairing order-independent. */
+        .ptb-badge.ptb-rarity-common    { background-color: #6b7480; color: #ffffff; }
+        .ptb-badge.ptb-rarity-uncommon  { background-color: #3d7f57; color: #ffffff; }
+        .ptb-badge.ptb-rarity-rare      { background-color: #3a6fb0; color: #ffffff; }
+        .ptb-badge.ptb-rarity-legendary { background-color: #a8791a; color: #ffffff; }
         /* The growth meter takes the same accent, so rarity is legible from the bar alone.
            GTK3 needs the `progress` node addressed directly; styling the bar tints the trough. */
         /* The hero's growth bar. The 6px default reads as a hairline under a 112px sprite, and
