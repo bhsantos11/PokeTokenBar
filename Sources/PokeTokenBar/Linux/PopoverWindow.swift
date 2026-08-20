@@ -1376,7 +1376,7 @@ final class PopoverWindow {
         gtkConnect(UnsafeMutableRawPointer(button), signal: "clicked",
                    box: GtkCallbackBox { [weak self] in
                        guard let self else { return }
-                       _ = self.companion.withdraw(at: index)
+                       _ = self.companion.withdraw(at: index, expecting: mon)
                        self.select(.home)
                        Task { @MainActor in await self.loadSpritesAndRefresh() }
                    })

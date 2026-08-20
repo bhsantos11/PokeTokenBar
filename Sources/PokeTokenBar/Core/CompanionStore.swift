@@ -1126,9 +1126,16 @@ final class CompanionStore {
     /// (알을 얻는 정당한 경로는 졸업 750M~6B 또는 구매 1B~4B 두 가지뿐이다). 교대만 허용하면
     /// "알이 시작되는 횟수"가 이 기능 전후로 동일하다. 보류된 알로 **돌아가는** 것만 예외이고,
     /// 그건 `returnToHeldEgg()` 가 별도로 처리한다(이미 값을 치른 알이라 공짜가 아니다).
+    /// - Parameter expecting: the individual the caller believes is at `index`, when it has one.
+    ///
+    /// Same reasoning as `release(at:expecting:)`, though the stakes are lower: taking out the wrong
+    /// Pokémon can be undone by taking out the right one. The guard is here anyway so that no
+    /// index-based call in this type is the *unsafe* one — a reader should not have to work out
+    /// which of two similar APIs checks identity.
     @discardableResult
-    func withdraw(at index: Int) -> Bool {
+    func withdraw(at index: Int, expecting: MonState? = nil) -> Bool {
         guard canWithdraw(at: index) else { return false }
+        if let expecting, state.boxed[index] != expecting { return false }
         if let active = state.active {
             state.boxed.append(active)
         } else {
