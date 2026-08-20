@@ -104,6 +104,9 @@ struct L {
     var back: String { t("뒤로", "Back", "戻る", "Atrás") }
     var generalSectionTitle: String { t("일반", "General", "一般", "General") }
     var menuBarSectionTitle: String { t("메뉴바에 표시", "Show in menu bar", "メニューバーに表示", "Mostrar en la barra de menús") }
+    /// Linux 판 같은 뜻의 제목. 이 데스크톱에 "메뉴바"는 없고 **트레이**가 있다 — macOS 용어를 그대로
+    /// 두면 사용자가 자기 화면에 없는 것을 찾게 된다. 문구만 다르고 설정 자체는 같은 값이다.
+    var traySectionTitle: String { t("트레이에 표시", "Show in the tray", "トレイに表示", "Mostrar en la bandeja") }
     var advancedSectionTitle: String { t("고급", "Advanced", "詳細", "Avanzado") }
     var advancedDisclosureLabel: String { t("고급 설정 · 진단", "Advanced · diagnostics", "詳細設定・診断", "Avanzado · diagnóstico") }
     var aboutSupportSectionTitle: String { t("정보 & 지원", "About & Support", "情報とサポート", "Acerca de y soporte") }
@@ -181,19 +184,23 @@ struct L {
     // MARK: 세이브 이전 (설정 → 백업 & 이전)
     var transferSectionTitle: String { t("백업 & 이전", "Backup & Transfer", "バックアップと移行", "Copia de seguridad y transferencia") }
     var exportSaveLabel: String { t("세이브 내보내기", "Export save", "セーブを書き出す", "Exportar partida") }
+    /// 목록을 나열하지 않는다 — 세이브에 담기는 것이 늘 때마다(박스·일지·업적·트레이너 이름이 그랬다)
+    /// 이 문장이 조용히 거짓이 되기 때문이다. "진행 전부"는 늘어나도 참이다.
     var exportSaveHint: String {
-        t("도감·누적 토큰·가방·현재 포켓몬을 파일 하나로 저장해요",
-          "Saves your Pokédex, lifetime tokens, Bag, and current Pokémon as one file",
-          "図鑑・累計トークン・バッグ・現在のポケモンを1つのファイルに保存します",
-          "Guarda tu Pokédex, tokens acumulados, Bolsa y Pokémon actual en un solo archivo")
+        t("지금까지의 진행을 통째로 파일 하나에 저장해요",
+          "Saves everything you have — your whole progress — as one file",
+          "これまでの進行をまるごと1つのファイルに保存します",
+          "Guarda todo tu progreso en un solo archivo")
     }
     var exportSaveButton: String { t("내보내기…", "Export…", "書き出す…", "Exportar…") }
     var importSaveLabel: String { t("세이브 불러오기", "Import save", "セーブを読み込む", "Importar partida") }
+    /// "다른 Mac" 이 아니라 "다른 기기" — Linux 판이 생긴 뒤로 문장이 사실이 아니었고, 리눅스
+    /// 사용자에게는 자기가 쓰지도 않는 기기를 요구하는 말로 읽힌다.
     var importSaveHint: String {
-        t("다른 Mac에서 내보낸 파일을 골라 이 Mac으로 이어서 키워요",
-          "Pick a file exported from another Mac and continue here",
-          "他のMacから書き出したファイルを選んでこのMacで続けます",
-          "Elige un archivo exportado desde otro Mac y continúa aquí")
+        t("다른 기기에서 내보낸 파일을 골라 여기서 이어 키워요",
+          "Pick a file exported from another device and carry on here",
+          "他の端末から書き出したファイルを選んで、ここから続けます",
+          "Elige un archivo exportado desde otro dispositivo y continúa aquí")
     }
     var importSaveButton: String { t("불러오기…", "Import…", "読み込む…", "Importar…") }
     var importConfirmTitle: String {

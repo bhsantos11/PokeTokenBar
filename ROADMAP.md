@@ -412,9 +412,10 @@ weight table keyed by provider id, never `== "claude_code"` branches in a genera
 
 ## Follow-ups this work surfaced
 
-- [ ] `l.importSaveHint` says a save comes "from another **Mac**". True before this port; now it
-      should be device-neutral. It is user-facing copy in ko/en/ja/es, so it wants a real
-      translation rather than a guess — **owner: Bernardo** to confirm the wording.
+- [x] `l.importSaveHint` said a save comes "from another **Mac**" — now device-neutral in all four
+      languages. Fixed alongside `exportSaveHint`, which listed what the file contains and had gone
+      quietly false as the Box, Chronicle, achievements and trainer name were added; it now says
+      "your whole progress", which stays true as the format grows.
 - [ ] The limits card (Phase 1) still has not been seen rendering. The endpoint has been returning
       429 intermittently since 2026-08-18 (94 occurrences), and a second app instance will not run
       alongside the installed service, so capturing it means stopping the user's tray. Waiting for a

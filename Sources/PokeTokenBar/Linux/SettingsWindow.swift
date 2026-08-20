@@ -88,7 +88,9 @@ final class SettingsWindow {
             }
         }
 
-        section(l.menuBarSectionTitle) { box in
+        // Linux has a tray, not a menu bar; the macOS wording sent people looking for something
+        // their desktop does not have. Same setting, different name for where it shows up.
+        section(l.traySectionTitle) { box in
             self.toggle(box, l.todayTokensShort, self.store.showTokensInMenu) { self.store.showTokensInMenu = $0 }
             self.toggle(box, l.todayCost, self.store.showCostInMenu) { self.store.showCostInMenu = $0 }
             self.toggle(box, l.limitPercent, self.store.showLimitInMenu) { self.store.showLimitInMenu = $0 }
@@ -402,6 +404,9 @@ final class SettingsWindow {
         gtk_scale_set_draw_value(scaleRef, 0)   // the value is rendered as text beside it instead
         gtk_widget_set_size_request(scale, 140, -1)
         gtk_widget_set_valign(scale, GTK_ALIGN_CENTER)
+        // A slider treats scroll as "change my value", so scrolling the page with the pointer over
+        // one silently rewrites a setting. Hand the scroll to the page instead.
+        gtkConnectScrollPassthrough(UnsafeMutableRawPointer(scale))
 
         let readout = Gtk.label("<span size='small'>\(Gtk.escape(format(value)))</span>")
         Gtk.addClass(readout, "ptb-muted")

@@ -179,6 +179,55 @@ final class GtkIndexCallbackBox {
     var opaque: UnsafeMutableRawPointer { Unmanaged.passRetained(self).toOpaque() }
 }
 
+/// Swallow scroll events on a widget, forwarding them to the nearest scrolled ancestor.
+///
+/// `GtkScale` treats a scroll as "change my value". Inside a scrolled settings page that means a
+/// pointer passing over a slider on its way down the page **silently changes a setting** — the pet
+/// size went from 96 to 48 during a routine scroll. Blocking the event outright would leave dead
+/// patches where the page refuses to scroll, so the delta is handed to the ancestor instead.
+///
+/// Handler shape is `(widget, event, user_data) -> gboolean`, and returning TRUE stops the widget
+/// from also acting on it.
+@discardableResult
+func gtkConnectScrollPassthrough(_ instance: UnsafeMutableRawPointer) -> gulong {
+    let callback: @convention(c) (
+        UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?
+    ) -> gboolean = { widget, event, _ in
+        guard let widget, let event else { return 0 }
+        // Walk up to the scrolled window this slider lives in; without one there is nothing to
+        // forward to and the event is simply dropped (still better than moving the slider).
+        var ancestor = gtk_widget_get_parent(widget.assumingMemoryBound(to: GtkWidget.self))
+        while let current = ancestor,
+              g_type_check_instance_is_a(
+                  UnsafeMutableRawPointer(current).assumingMemoryBound(to: GTypeInstance.self),
+                  gtk_scrolled_window_get_type()) == 0 {
+            ancestor = gtk_widget_get_parent(current)
+        }
+        guard let scroller = ancestor else { return 1 }
+        let adjustment = gtk_scrolled_window_get_vadjustment(
+            UnsafeMutableRawPointer(scroller).assumingMemoryBound(to: GtkScrolledWindow.self))
+        var deltaY: Double = 0
+        if gdk_event_get_scroll_deltas(event.assumingMemoryBound(to: GdkEvent.self), nil, &deltaY) == 0 {
+            // Discrete wheels report a direction rather than a delta.
+            var direction = GDK_SCROLL_SMOOTH
+            if gdk_event_get_scroll_direction(event.assumingMemoryBound(to: GdkEvent.self),
+                                              &direction) != 0 {
+                deltaY = direction == GDK_SCROLL_DOWN ? 1 : (direction == GDK_SCROLL_UP ? -1 : 0)
+            }
+        }
+        let step = gtk_adjustment_get_step_increment(adjustment) * 3
+        let target = gtk_adjustment_get_value(adjustment) + deltaY * step
+        let maximum = gtk_adjustment_get_upper(adjustment) - gtk_adjustment_get_page_size(adjustment)
+        gtk_adjustment_set_value(adjustment, min(max(gtk_adjustment_get_lower(adjustment), target),
+                                                 max(gtk_adjustment_get_lower(adjustment), maximum)))
+        return 1
+    }
+    return g_signal_connect_data(
+        instance, "scroll-event",
+        unsafeBitCast(callback, to: GCallback.self),
+        nil, nil, GConnectFlags(rawValue: 0))
+}
+
 /// Connect a window's `delete-event` (the close button).
 ///
 /// Separate from `gtkConnect` because this signal's handler returns `gboolean`, and returning TRUE
