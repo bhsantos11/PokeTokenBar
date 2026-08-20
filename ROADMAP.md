@@ -7,8 +7,7 @@ Two tracks, tracked in one file because they share the same Core.
   verification on a real panel rather than construction.
 - **Track B — Gameplay.** The game is currently monotonic: usage only goes up, nothing is ever at
   risk, and the only decision is which item to buy. These are the changes that give it choices,
-  rhythm and texture. **G1, G2, G3, G5, G6, G7, G8 and G9 are built** (Linux); G4 is still blocked on a
-  design decision. Each carries a macOS gap, since that half cannot be built or verified on this machine.
+  rhythm and texture. **G1, G2, G3, G5–G10 are built** (Linux); G4 is still blocked on a design decision. Each carries a macOS gap, since that half cannot be built or verified on this machine.
 
 Everything below is **buildable** — the two genuinely impossible items (dragging the floating pet,
 anchoring the window to the tray icon) are Wayland restrictions and are recorded at the bottom
@@ -247,6 +246,32 @@ thing in the app that can leave the app.
 **Caught by an existing guard.** The first version read `XDG_PICTURES_DIR` directly and
 `UsageEnvironmentTests` rejected it: a GUI app launched from a desktop file or systemd unit does not
 inherit the shell environment. Resolved through `FileManager` instead.
+
+### Phase G10 — Achievements and the Bag  ✅ built, verified on screen
+- [x] Twelve achievements, evaluated as a **pure query over history that already exists** — the
+      Chronicle and the Pokédex. No new counters: a second source of truth for "did this happen"
+      would eventually disagree with the first, and there would be no way to tell which was right
+- [x] Therefore **retroactive**: someone who hatched a shiny before this existed has the achievement
+      immediately. An achievement system that ignores the past punishes the people who used the app
+      longest
+- [x] First run **seeds silently** — a long-lived save earns many at once, and announcing all of them
+      would be a bombardment rather than a celebration
+- [x] Locked achievements stay visible and named, with progress where progress is meaningful; a
+      hidden list gives the player nothing to aim at
+- [x] Earned/locked distinguished by a filled vs hollow mark, not by colour alone
+- [x] Chronicle entries now record the **local hour at the time of writing**. Deriving it at read
+      time meant that changing timezone rewrote your past — an evening became an afternoon. Old
+      entries still fall back to the stored date
+- [x] Bag rebuilt: it now says who an item will be used on, what each item does, and its concrete
+      effect. Previously, once you owned something there was nowhere left to learn what it was for
+- [x] Regression tests (11)
+
+**A test that proved nothing, and the fix.** The first guard for the silent first run asserted only
+the resulting state — but the flood and the correct behaviour leave *identical* state, differing
+only in notifications, which are compiled out of test builds. Injecting the defect passed. The rule
+moved into a pure `Achievements.announcement`, which the test now checks directly; injecting the
+defect there fails as it should. Same lesson as `limitsReady` in G5: a rule that lives inside a
+side-effecting method cannot be tested, and a test that cannot fail is not a guard.
 
 ### Phase G4 — Trade cards
 `SaveTransfer` already exports, imports, summarises, confirms and sanitises a whole save. A

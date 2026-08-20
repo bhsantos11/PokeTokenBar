@@ -17,6 +17,12 @@ struct ChronicleEntry: Codable, Sendable, Identifiable, Equatable {
     var nickname: String?
     var rarity: Rarity?
     var isShiny = false
+    /// 사건이 일어난 **그 지역 시각의 시(hour)**. 기록 시점에 확정한다.
+    ///
+    /// 읽을 때 계산하면 시간대를 옮긴 사용자의 과거가 통째로 다시 쓰인다 — 밤에 있었던 일이 다음
+    /// 나라에서는 오후가 된다. 일기는 그날 그곳의 사실을 담아야 한다. 구버전 기록은 nil 이고,
+    /// 그때만 `at` 에서 현재 달력으로 추정한다(그 외에는 추정하지 않는다).
+    var hour: Int?
 
     enum Kind: String, Codable, Sendable, CaseIterable {
         case hatched, evolved, graduated, boxed, withdrawn, renamed, dittoRevealed

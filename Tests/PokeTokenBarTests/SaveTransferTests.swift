@@ -519,6 +519,9 @@ final class SaveTransferTests: XCTestCase {
                                      // 트레이너 이름 = 진행. 이 기기의 장부가 아니라 사람이 정한
                                      // 것이라 기기를 옮겨도 따라간다(언어와 달리 표시 설정이 아니다).
                                      "trainerName",
+                                     // 알림 기록 = 계정 원장이 아니라 진행에 가깝다. 달성 여부 자체는
+                                     // 상태에서 다시 계산되므로, 이 집합은 "이미 축하했다"만 옮긴다.
+                                     "earnedAchievements",
                                      "dex", "collectedFinals", "inventory"]
         let deviceLedger: Set<String> = ["installBaselineSet", "claimedTodayTokensByProvider", "lastDate"]
         let accountLedger: Set<String> = ["candyGrantTier", "candyFeatureSeeded"]

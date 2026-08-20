@@ -165,10 +165,12 @@ final class CompanionStore {
     /// 사건 하나를 일지에 남긴다. **저장은 호출부가 이미 하는 save() 에 맡긴다** — 여기서 또 쓰면
     /// 한 사건에 디스크 쓰기가 두 번 난다.
     private func chronicle(_ kind: ChronicleEntry.Kind, mon: MonState?, to: Int? = nil) {
-        let entry = ChronicleEntry(at: clock(), kind: kind,
+        let at = clock()
+        let entry = ChronicleEntry(at: at, kind: kind,
                                    speciesID: mon?.currentID, toSpeciesID: to,
                                    nickname: mon?.nickname, rarity: mon?.rarity,
-                                   isShiny: mon.map(Self.displayShiny) ?? false)
+                                   isShiny: mon.map(Self.displayShiny) ?? false,
+                                   hour: Calendar.current.component(.hour, from: at))
         state.chronicle = Chronicle.appending(entry, to: state.chronicle)
     }
 
@@ -179,6 +181,30 @@ final class CompanionStore {
     var trainerName: String? { state.trainerName }
     var trainerStats: TrainerStats { TrainerCard.stats(state: state, now: clock()) }
 
+    var earnedAchievements: [Achievement] { Achievements.earned(state: state, stats: trainerStats) }
+    var lockedAchievements: [Achievement] { Achievements.locked(state: state, stats: trainerStats) }
+    func achievementProgress(_ a: Achievement) -> (current: Int, target: Int)? {
+        a.progress(stats: trainerStats)
+    }
+
+    /// 새로 달성한 업적을 한 번만 알린다. `update()` 가 매 틱 부른다.
+    ///
+    /// 소급 적용이라 **첫 실행에서 과거분이 한꺼번에 달성된다** — 그때 알림을 12개 쏘면 축하가 아니라
+    /// 폭격이다. 그래서 기록이 비어 있으면(이 기능을 처음 보는 세이브) 알림 없이 기록만 심는다.
+    /// 사탕 지급의 `candyFeatureSeeded` 와 같은 처리다.
+    private func announceNewAchievements() {
+        let stats = trainerStats
+        let newly = Achievements.newlyEarned(state: state, stats: stats)
+        guard !newly.isEmpty else { return }
+        // 알릴 대상 판정은 `Achievements.announcement` 가 한다 — 알림은 설치본에서만 나가므로
+        // 규칙을 여기 두면 테스트가 폭탄 구현과 정상 구현을 구별하지 못한다.
+        let announced = Achievements.announcement(newly: newly,
+                                                  alreadyRecorded: state.earnedAchievements)
+        state.earnedAchievements.formUnion(newly.map(\.rawValue))
+        guard let announced else { return }
+        notifyCompanionEvent(l.achievementsTitle, l.achievementName(announced))
+    }
+
     /// 트레이너 이름 설정. 비우면 해제 — 애칭과 같은 규칙을 쓴다(공백만도 해제, 문자 수로 자름).
     func setTrainerName(_ raw: String?) {
         let trimmed = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -188,7 +214,8 @@ final class CompanionStore {
 
     /// 일지 표시용 한 줄 — 사건 + 그날의 시각 + 그때의 이름으로 문장을 만든다.
     func chronicleLine(_ entry: ChronicleEntry) -> String {
-        let hour = Calendar.current.component(.hour, from: entry.at)
+        // 기록된 시각을 쓰고, 없을 때만(구버전 기록) 현재 달력으로 추정한다.
+        let hour = entry.hour ?? Calendar.current.component(.hour, from: entry.at)
         let when = l.dayPart(DayPart.of(hour: hour))
         let name = entry.nickname ?? entry.speciesID.map(speciesName) ?? l.dexIndividualUnnamed
         return l.chronicleLine(entry.kind, when: when, name: name,
@@ -586,6 +613,7 @@ final class CompanionStore {
                 }
             }
         }
+        announceNewAchievements()
         // 쓰다듬기 반응 만료 — 이벤트 창과 같은 자리에서 정리한다. 뷰가 자기 타이머를 돌리지 않게
         // 하는 것이 핵심이다: 상시 표시 UI 의 타이머는 에너지 규칙(defect-log §에너지)에 걸린다.
         if let until = petReactionUntil, clock() > until { petReaction = nil; petReactionUntil = nil }

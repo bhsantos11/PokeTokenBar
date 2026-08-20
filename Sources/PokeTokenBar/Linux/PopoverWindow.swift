@@ -530,16 +530,57 @@ final class PopoverWindow {
     // MARK: Bag
 
     private func buildBag(into page: Widget, _ l: L) {
+        // Who the items act on, before the items themselves. A column of Use buttons with no visible
+        // subject leaves the player guessing what they are about to spend a 500M item on.
+        Gtk.pack(page, bagTargetCard(l))
+
         let owned = companion.ownedItems
         guard !owned.isEmpty else {
-            let empty = Gtk.label("<b>\(Gtk.escape(l.bagEmptyTitle))</b>", align: GTK_ALIGN_CENTER)
+            let empty = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 6)
             Gtk.margins(empty, top: 24)
+            Gtk.pack(empty, Gtk.label("<b>\(Gtk.escape(l.bagEmptyTitle))</b>", align: GTK_ALIGN_CENTER))
+            // An empty bag should say how bags stop being empty, not just that it is empty.
+            let hint = Gtk.label("<span size='small'>\(Gtk.escape(l.bagEmptyHint))</span>",
+                                 align: GTK_ALIGN_CENTER, wrap: true)
+            Gtk.addClass(hint, "ptb-muted")
+            Gtk.pack(empty, hint)
             Gtk.pack(page, empty)
             return
         }
         for (kind, count) in owned {
             Gtk.pack(page, bagRow(kind, count, l))
         }
+    }
+
+    /// The companion an item would be spent on, with its stage — so "Use" has a visible subject.
+    private func bagTargetCard(_ l: L) -> Widget {
+        let card = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 10)
+        Gtk.addClass(card, "ptb-card")
+        let caption = Gtk.label("<span size='small'>\(Gtk.escape(l.bagUsingOn))</span>")
+        Gtk.addClass(caption, "ptb-section")
+        gtk_widget_set_valign(caption, GTK_ALIGN_CENTER)
+        Gtk.pack(card, caption)
+
+        guard companion.hasActive else {
+            let none = Gtk.label("<span size='small'>\(Gtk.escape(l.bagNoTarget))</span>", wrap: true)
+            Gtk.addClass(none, "ptb-muted")
+            gtk_widget_set_valign(none, GTK_ALIGN_CENTER)
+            Gtk.pack(card, none, expand: true)
+            return card
+        }
+        if let id = companion.currentSpeciesID,
+           let image = spriteImage("\(id)-\(companion.currentIsShiny)", size: 32)
+            ?? spriteImage("\(id)-false", size: 32) {
+            Gtk.pack(card, image)
+        }
+        let text = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 1)
+        gtk_widget_set_valign(text, GTK_ALIGN_CENTER)
+        Gtk.pack(text, Gtk.label("<b>\(Gtk.escape(companion.displayName))</b>"))
+        let stage = Gtk.label("<span size='small'>\(Gtk.escape(companion.stageText))</span>")
+        Gtk.addClass(stage, "ptb-muted")
+        Gtk.pack(text, stage)
+        Gtk.pack(card, text, expand: true)
+        return card
     }
 
     private func bagRow(_ kind: ItemKind, _ count: Int, _ l: L) -> Widget {
@@ -556,6 +597,17 @@ final class PopoverWindow {
         let countLabel = Gtk.label("<span size='small'>\(Gtk.escape(body))</span>", wrap: true)
         Gtk.addClass(countLabel, armed == nil ? "ptb-muted" : "ptb-warning")
         Gtk.pack(text, countLabel)
+        // What the item actually does. The Shop says it, the Bag did not — so once you owned a thing
+        // there was nowhere left to find out what it was for.
+        if armed == nil {
+            let effect = Gtk.label("<span size='small'>\(Gtk.escape(l.itemDescription(kind)))</span>",
+                                   wrap: true)
+            Gtk.addClass(effect, "ptb-muted")
+            Gtk.pack(text, effect)
+            let amount = Gtk.label(
+                "<span size='small'><b>\(Gtk.escape(l.itemEffect(kind, currentNature: companion.currentNature, companion.language)))</b></span>")
+            Gtk.pack(text, amount)
+        }
         Gtk.pack(row, text, expand: true)
 
         // Passive items apply just by being owned — there is nothing to press, so no button.
@@ -767,6 +819,8 @@ final class PopoverWindow {
         for (label, value) in rows { Gtk.pack(statCard, trainerStatRow(label, value)) }
         Gtk.pack(page, statCard)
 
+        Gtk.pack(page, achievementsCard(l))
+
         guard !forExport else { return }
         let export = gtk_button_new_with_label(l.trainerExport)!
         gtk_widget_set_halign(export, GTK_ALIGN_CENTER)
@@ -829,6 +883,56 @@ final class PopoverWindow {
         let directory = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser
         return directory.appendingPathComponent(TrainerCard.exportFileName(now: now))
+    }
+
+    /// Achievements, earned first. Locked ones stay visible and named — a hidden list gives the
+    /// player nothing to aim at, and every one of these describes something they could go and do.
+    private func achievementsCard(_ l: L) -> Widget {
+        let card = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 6)
+        Gtk.addClass(card, "ptb-card")
+        let earned = companion.earnedAchievements
+        let header = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 6)
+        let caption = Gtk.label(Gtk.escape(l.achievementsTitle))
+        Gtk.addClass(caption, "ptb-section")
+        Gtk.pack(header, caption)
+        let count = Gtk.label(
+            "<span size='small'>\(Gtk.escape(l.achievementsEarned(earned.count, Achievement.allCases.count)))</span>")
+        Gtk.addClass(count, "ptb-muted")
+        gtk_widget_set_halign(count, GTK_ALIGN_END)
+        Gtk.pack(header, count, expand: true)
+        Gtk.pack(card, header)
+
+        for achievement in earned { Gtk.pack(card, achievementRow(achievement, earned: true, l)) }
+        for achievement in companion.lockedAchievements {
+            Gtk.pack(card, achievementRow(achievement, earned: false, l))
+        }
+        return card
+    }
+
+    private func achievementRow(_ a: Achievement, earned: Bool, _ l: L) -> Widget {
+        let row = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 8)
+        // A filled/hollow mark rather than colour alone, so the two states are told apart without
+        // relying on colour vision.
+        let mark = Gtk.label(earned ? "◆" : "◇")
+        gtk_widget_set_valign(mark, GTK_ALIGN_START)
+        Gtk.addClass(mark, earned ? "ptb-price" : "ptb-muted")
+        Gtk.pack(row, mark)
+
+        let text = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 1)
+        var title = l.achievementName(a)
+        if let progress = companion.achievementProgress(a), !earned {
+            title += " (\(progress.current)/\(progress.target))"
+        }
+        let name = Gtk.label("<span size='small'><b>\(Gtk.escape(title))</b></span>")
+        gtk_widget_set_halign(name, GTK_ALIGN_START)
+        if !earned { Gtk.addClass(name, "ptb-muted") }
+        Gtk.pack(text, name)
+        let detail = Gtk.label("<span size='small'>\(Gtk.escape(l.achievementDetail(a)))</span>", wrap: true)
+        Gtk.addClass(detail, "ptb-muted")
+        gtk_widget_set_halign(detail, GTK_ALIGN_START)
+        Gtk.pack(text, detail)
+        Gtk.pack(row, text, expand: true)
+        return row
     }
 
     private func trainerStatRow(_ label: String, _ value: String) -> Widget {

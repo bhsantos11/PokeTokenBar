@@ -592,6 +592,9 @@ struct CompanionState: Codable, Sendable {
     /// 트레이너 이름. nil = 아직 안 정함(화면이 안내 문구를 대신 보여 준다).
     /// **시스템 사용자명에서 유추하지 않는다** — 계정 이름은 사람이 불리고 싶은 이름이 아니다.
     var trainerName: String?
+    /// 이미 축하 연출을 띄운 업적 id. 달성 여부 자체는 상태에서 매번 다시 계산하므로 이 집합은
+    /// **"알렸는가"** 만 기억한다 — 달성 사실의 두 번째 진실을 만들지 않기 위해서다.
+    var earnedAchievements: Set<String> = []
     // 도감
     var dex: [DexEntry] = []
     // 소유한 (base,final) 쌍 — 분기 다양성용
@@ -643,6 +646,7 @@ struct CompanionState: Codable, Sendable {
                                        default: []).compactMap(\.value)
         // 관대 디코딩 — 타입이 어긋나도 이름 하나 때문에 상태 전체를 잃지 않는다.
         trainerName        = c.lenientOptional(String.self, forKey: .trainerName)
+        earnedAchievements = c.lenient(Set<String>.self, forKey: .earnedAchievements, default: [])
         collectedFinals    = c.lenient(Set<String>.self, forKey: .collectedFinals, default: [])
         language           = c.lenient(AppLanguage.self, forKey: .language, default: .systemDefault)
         inventory          = c.lenient([String: Int].self, forKey: .inventory, default: [:])

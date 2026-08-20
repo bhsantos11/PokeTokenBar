@@ -489,6 +489,44 @@ struct L {
         t("\(graduated) / \(seen) 종", "\(graduated) of \(seen) species",
           "\(graduated) / \(seen) 種", "\(graduated) de \(seen) especies")
     }
+    // MARK: 업적
+    var achievementsTitle: String { t("업적", "Achievements", "実績", "Logros") }
+    func achievementsEarned(_ count: Int, _ total: Int) -> String {
+        t("\(count) / \(total) 달성", "\(count) of \(total)", "\(count) / \(total) 達成", "\(count) de \(total)")
+    }
+    func achievementName(_ a: Achievement) -> String {
+        switch a {
+        case .firstHatch:      return t("첫 만남", "First Meeting", "はじめての出会い", "Primer encuentro")
+        case .firstGraduate:   return t("첫 졸업", "First Graduate", "はじめての卒業", "Primer graduado")
+        case .shinyFound:      return t("반짝임", "A Certain Sparkle", "きらめき", "Un cierto brillo")
+        case .legendaryRaised: return t("전설의 곁", "Beside a Legend", "伝説とともに", "Junto a una leyenda")
+        case .nightOwl:        return t("밤의 사람", "Night Owl", "夜ふかし", "Ave nocturna")
+        case .earlyBird:       return t("새벽의 사람", "Early Riser", "早起き", "Madrugador")
+        case .collector:       return t("수집가", "Collector", "コレクター", "Coleccionista")
+        case .dedicated:       return t("한결같이", "Steadfast", "ひとすじ", "Constante")
+        case .secondChance:    return t("다시 곁으로", "Second Chance", "もう一度そばに", "Segunda oportunidad")
+        case .namer:           return t("이름을 지어", "The Naming", "名づけ", "El bautizo")
+        case .transformed:     return t("정체", "True Form", "正体", "Forma real")
+        case .bigSpender:      return t("큰손", "Big Spender", "大盤振る舞い", "Manirroto")
+        }
+    }
+    func achievementDetail(_ a: Achievement) -> String {
+        switch a {
+        case .firstHatch:      return t("알에서 첫 포켓몬을 맞이했어요.", "Welcomed your first Pokémon out of its egg.", "はじめてのポケモンをタマゴから迎えました。", "Recibiste a tu primer Pokémon.")
+        case .firstGraduate:   return t("한 마리를 끝까지 키워 도감에 올렸어요.", "Raised one all the way into the Pokédex.", "一匹を最後まで育てて図鑑に載せました。", "Criaste a uno hasta la Pokédex.")
+        case .shinyFound:      return t("이로치를 만났어요.", "Met a shiny Pokémon.", "色違いに出会いました。", "Conociste a un Pokémon variocolor.")
+        case .legendaryRaised: return t("전설급을 졸업시켰어요.", "Graduated a legendary.", "伝説級を卒業させました。", "Graduaste a un legendario.")
+        case .nightOwl:        return t("늦은 밤에도 무언가 일어났어요.", "Something happened late at night.", "夜遅くにも何かが起きました。", "Algo ocurrió bien entrada la noche.")
+        case .earlyBird:       return t("이른 아침에도 무언가 일어났어요.", "Something happened early in the morning.", "早朝にも何かが起きました。", "Algo ocurrió de madrugada.")
+        case .collector:       return t("10종을 만났어요.", "Met ten different species.", "10種に出会いました。", "Conociste diez especies.")
+        case .dedicated:       return t("다섯 마리를 졸업시켰어요.", "Graduated five Pokémon.", "五匹を卒業させました。", "Graduaste a cinco Pokémon.")
+        case .secondChance:    return t("박스에서 다시 데리고 나왔어요.", "Brought someone back out of the Box.", "ボックスから連れ戻しました。", "Sacaste a alguien de la Caja.")
+        case .namer:           return t("포켓몬에게 이름을 지어 주었어요.", "Gave a Pokémon a name of your own.", "ポケモンに名前をつけました。", "Le pusiste tu propio nombre.")
+        case .transformed:     return t("메타몽의 정체를 마주했어요.", "Saw a Ditto drop its disguise.", "メタモンの正体を見ました。", "Viste a un Ditto revelarse.")
+        case .bigSpender:      return t("상점에서 5B를 썼어요.", "Spent 5B in the shop.", "ショップで5B使いました。", "Gastaste 5B en la tienda.")
+        }
+    }
+
     var trainerExport: String { t("이미지로 저장", "Save as image", "画像として保存", "Guardar como imagen") }
     func trainerExported(_ path: String) -> String {
         t("저장했어요: \(path)", "Saved to \(path)", "保存しました: \(path)", "Guardado en \(path)")
@@ -715,6 +753,32 @@ struct L {
     // MARK: 가방 / 아이템
     var bag: String { t("가방", "Bag", "バッグ", "Bolsa") }
     var bagEmptyTitle: String { t("아직 가방이 비어있어요!", "Your bag is empty!", "バッグはまだ空っぽです！", "¡Tu bolsa todavía está vacía!") }
+    var bagEmptyHint: String {
+        t("한도를 다 쓰면 이상한 사탕을 받고, 상점에서도 살 수 있어요.",
+          "You earn Rare Candy by using up a limit window, and the Shop sells items too.",
+          "上限を使い切るとふしぎなアメがもらえ、ショップでも購入できます。",
+          "Ganas Caramelos Raros al agotar un límite, y la Tienda también vende objetos.")
+    }
+    /// 가방이 "누구에게 쓰는지" 를 보여 주는 머리글. 대상 없이 놓인 사용 버튼은 무엇에 쓰이는지 알 수 없다.
+    var bagUsingOn: String { t("사용 대상", "Using on", "使う相手", "Usar en") }
+    var bagNoTarget: String {
+        t("알이 깨면 아이템을 쓸 수 있어요.", "Items become usable once your egg hatches.",
+          "タマゴが孵るとアイテムを使えます。", "Podrás usar objetos cuando eclosione el huevo.")
+    }
+    /// 소지품의 효과 한 줄 — 상점에는 있는데 가방에는 없던 정보다. 산 뒤에 무슨 물건인지 알 수 없으면
+    /// 그 아이템은 목록의 이름표일 뿐이다.
+    func itemEffect(_ kind: ItemKind, currentNature: PokemonNature?, _ lang: AppLanguage) -> String {
+        switch kind {
+        case .rareCandy:
+            return "+\(TokenFormatter.compact(RareCandy.xp)) XP"
+        case .mint:
+            guard let currentNature else { return mintEffectHint }
+            return t("지금 성격: \(currentNature.name(lang))", "Now: \(currentNature.name(lang))",
+                     "いまの性格: \(currentNature.name(lang))", "Ahora: \(currentNature.name(lang))")
+        case .shinyCharm:
+            return shinyCharmEffectHint
+        }
+    }
     var useItem: String { t("사용하기", "Use", "つかう", "Usar") }
     var use: String { t("사용", "Use", "つかう", "Usar") }
     var cancel: String { t("취소", "Cancel", "キャンセル", "Cancelar") }
