@@ -20,6 +20,49 @@ enum PopoverStyle {
         .ptb-huge       { font-size: 30px; font-weight: bold; }
         .ptb-muted      { color: alpha(@theme_fg_color, 0.55); font-size: 11px; }
         .ptb-section    { font-size: 11px; font-weight: bold; color: alpha(@theme_fg_color, 0.55); }
+        /* A row asking to confirm something it cannot undo. Not muted — the whole point is that it
+           reads differently from the description it replaces, so a click does not land on autopilot. */
+        .ptb-warning    { font-size: 11px; font-weight: bold; color: #d08770; }
+        /* What the companion just said when you clicked it. Deliberately not muted — it is a direct
+           answer to something the player did, and muting it makes the click feel unacknowledged. */
+        .ptb-reaction   { font-size: 11px; font-style: italic; color: @theme_fg_color; }
+        /* A price you can actually pay. Muted grey put the row's whole decision in fine print. */
+        .ptb-price      { font-size: 11px; color: alpha(@theme_fg_color, 0.85); }
+        /* The Home hero. Slightly lifted off the background so the pet reads as the subject of the
+           panel rather than the first row of a list. */
+        .ptb-hero {
+          background-color: alpha(@theme_fg_color, 0.08);
+          padding: 16px 12px;
+        }
+        /* The sprite is a button so it can be clicked; it must not look like one. Only the hover
+           state hints that it is interactive. */
+        .ptb-sprite-button {
+          background: none;
+          border: none;
+          box-shadow: none;
+          padding: 0;
+          min-height: 0;
+          min-width: 0;
+        }
+        .ptb-sprite-button:hover { background-color: alpha(@theme_fg_color, 0.10); border-radius: 12px; }
+        /* Rarity accents. The badge was one flat grey for every tier, so the rarest thing a player
+           owns looked exactly like the commonest. Colours match the dex chips on macOS. */
+        .ptb-rarity-common    { background-color: alpha(#8f9aa6, 0.35); }
+        .ptb-rarity-uncommon  { background-color: alpha(#4c9f70, 0.45); }
+        .ptb-rarity-rare      { background-color: alpha(#4a7fd0, 0.45); }
+        .ptb-rarity-legendary { background-color: alpha(#c9a227, 0.50); }
+        /* The growth meter takes the same accent, so rarity is legible from the bar alone.
+           GTK3 needs the `progress` node addressed directly; styling the bar tints the trough. */
+        /* The hero's growth bar. The 6px default reads as a hairline under a 112px sprite, and
+           edge-to-edge it looks like a divider rather than a meter. */
+        .ptb-meter-hero, .ptb-meter-hero trough, .ptb-meter-hero progress {
+          min-height: 10px;
+          border-radius: 5px;
+        }
+        .ptb-meter-common progress    { background-image: none; background-color: #8f9aa6; }
+        .ptb-meter-uncommon progress  { background-image: none; background-color: #4c9f70; }
+        .ptb-meter-rare progress      { background-image: none; background-color: #4a7fd0; }
+        .ptb-meter-legendary progress { background-image: none; background-color: #c9a227; }
         .ptb-badge {
           background-color: alpha(@theme_fg_color, 0.12);
           border-radius: 8px;

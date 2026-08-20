@@ -23,14 +23,34 @@ final class PopoverWindow {
     /// Which provider's breakdown is expanded. nil = the first one.
     private var selectedProviderID: String?
 
+    /// What a pending confirmation is armed on. Rows compare against this to decide whether to draw
+    /// their action button or the prompt that stands in front of it.
+    private enum ConfirmTarget: Equatable {
+        case shop(ShopEntry)
+        case bag(ItemKind)
+    }
+
+    /// The action awaiting confirmation and the steps it still has to clear, or nil when nothing is
+    /// armed. Kept on the window rather than inside the row because `refresh()` rebuilds every row
+    /// wholesale — state living in the button would be thrown away by whichever poll landed next.
+    ///
+    /// Cleared when the panel hides or the tab changes, so an armed confirmation can never sit
+    /// waiting behind a tab the player returns to later and clicks blind.
+    private var pendingConfirm: (target: ConfirmTarget, steps: [ActionConfirmPolicy.Step])?
+
     /// Panel size. `set_default_size` is only honoured while the content's natural size is smaller,
     /// so everything inside has to stay within it — see the wrap cap in `Gtk.label`.
     private static let windowWidth: Int32 = 400
     private static let windowHeight: Int32 = 620
 
     /// Which half of the Collection tab is showing.
-    private enum CollectionMode { case dex, log }
+    private enum CollectionMode { case dex, log, box }
     private var collectionMode: CollectionMode = .dex
+    /// Whether the Home hero is showing its rename field instead of the name.
+    /// Kept on the window because `refresh()` rebuilds every widget — state inside the row would be
+    /// discarded by whichever poll landed while someone was typing.
+    private var renamingCompanion = false
+
     /// Zero-based page of the species grid.
     private var dexPage = 0
     /// Rarity filter; nil shows everything. Tapping the active capsule clears it (`l.dexFilterHint`).
@@ -103,6 +123,7 @@ final class PopoverWindow {
         }
         pages = built
         Gtk.pack(root, stack, expand: true)
+        observeTabChanges()
 
         // Closing must hide, not destroy: the tray outlives the window, and destroying it would
         // leave every later `show()` pointing at freed widgets. Returning true stops GTK's default
@@ -121,7 +142,23 @@ final class PopoverWindow {
     func toggle() { isVisible ? hide() : show() }
 
     /// Switch tabs programmatically. Used by `--window <tab>`; the switcher drives it otherwise.
+    /// Clearing armed confirmations has to hang off the **stack**, not off `select(_:)`.
+    ///
+    /// `GtkStackSwitcher` changes the visible child itself; a user clicking a tab never calls
+    /// `select(_:)`. Hooking only the programmatic path let someone arm a purchase, switch tabs,
+    /// come back and find the commit still armed — exactly the "never waiting behind a tab"
+    /// invariant the confirmation ladder claims. Covers both paths, since `select` moves the stack.
+    private func observeTabChanges() {
+        gtkConnectNotify(UnsafeMutableRawPointer(stack), property: "visible-child",
+                         box: GtkCallbackBox { [weak self] in
+                             guard let self, self.pendingConfirm != nil else { return }
+                             self.pendingConfirm = nil
+                             self.refresh()
+                         })
+    }
+
     func select(_ tab: PopoverTab) {
+        pendingConfirm = nil
         gtk_stack_set_visible_child_name(asStack(stack), tab.identifier)
     }
 
@@ -145,6 +182,7 @@ final class PopoverWindow {
 
     func hide() {
         isVisible = false
+        pendingConfirm = nil
         GtkRuntime.hasVisibleWindow = false
         gtk_widget_hide(window)
     }
@@ -374,20 +412,47 @@ final class PopoverWindow {
             let icon = spriteImage("egg", size: 32) ?? Gtk.label("<span size='x-large'>🥚</span>")
             Gtk.pack(row, icon)
             title = l.eggName(tier)
-            subtitle = l.shopHint
+            // The egg's own description, not the generic shop hint. This line is the only place that
+            // says buying one sends the current companion away, and the row shipped without it.
+            // A disabled button with no reason reads as a bug. A held egg is the one blocker that
+            // is not about money, so it has to say so — the fix is a click away on the Box tab.
+            subtitle = companion.hasHeldEgg ? l.boxHeldEggBlocksPurchase : l.eggDescription(tier)
             affordable = companion.canBuyEgg(tier)
             alreadyOwned = false
         }
 
+        // While this row is the armed one, its description line carries the prompt instead — the
+        // question lands where the player is already reading rather than in a separate dialog.
+        let armed = armedStep(for: .shop(entry))
         let text = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 2)
         gtk_widget_set_valign(text, GTK_ALIGN_CENTER)
-        Gtk.pack(text, Gtk.label("<b>\(Gtk.escape(title))</b>"))
-        let desc = Gtk.label("<span size='small'>\(Gtk.escape(subtitle))</span>", wrap: true)
-        Gtk.addClass(desc, "ptb-muted")
+
+        // Title row, with the guaranteed tier as a coloured badge. macOS has carried this since the
+        // premium eggs shipped; without it the three eggs differ only by a word in their names, and
+        // the 4B one looks like the 1B one.
+        let titleRow = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 6)
+        Gtk.pack(titleRow, Gtk.label("<b>\(Gtk.escape(title))</b>"))
+        if case .egg(let tier) = entry, let tier {
+            let badge = Gtk.label(Gtk.escape(l.rarityLabel(tier).uppercased()))
+            Gtk.addClass(badge, "ptb-badge")
+            Gtk.addClass(badge, "ptb-rarity-\(tier.rawValue)")
+            gtk_widget_set_valign(badge, GTK_ALIGN_CENTER)
+            Gtk.pack(titleRow, badge)
+        }
+        Gtk.pack(text, titleRow)
+        let body = armed.map { shopPrompt(step: $0, entry: entry, l) } ?? subtitle
+        let desc = Gtk.label("<span size='small'>\(Gtk.escape(body))</span>", wrap: true)
+        Gtk.addClass(desc, armed == nil ? "ptb-muted" : "ptb-warning")
         Gtk.pack(text, desc)
-        let price = Gtk.label(
-            "<span size='small'>\(Gtk.escape(l.shopPriceLabel)) \(Gtk.escape(TokenFormatter.compact(entry.price)))</span>")
-        Gtk.addClass(price, "ptb-muted")
+        // The price is the decision on this row, so it is not fine print. When it is out of reach,
+        // say so here instead of only greying the button — a disabled control with no reason reads
+        // as a bug (the same rule the limits placeholder follows).
+        let priceText = "\(l.shopPriceLabel) \(TokenFormatter.compact(entry.price))"
+        let price = Gtk.label(affordable || alreadyOwned
+            ? "<span size='small'><b>\(Gtk.escape(priceText))</b></span>"
+            : "<span size='small'><b>\(Gtk.escape(priceText))</b> · \(Gtk.escape(l.notEnoughTokens))</span>")
+        Gtk.addClass(price, affordable || alreadyOwned ? "ptb-price" : "ptb-muted")
+        gtk_widget_set_tooltip_text(price, TokenFormatter.grouped(entry.price))
         Gtk.pack(text, price)
         Gtk.pack(row, text, expand: true)
 
@@ -398,19 +463,38 @@ final class PopoverWindow {
             return row
         }
 
+        if let step = armed {
+            Gtk.pack(row, confirmControls(label: shopConfirmLabel(step: step, l),
+                                          destructive: ActionConfirmPolicy.discardsCompanion(entry),
+                                          l) { [weak self] in
+                guard let self, self.advanceConfirm(.shop(entry)) else { return }
+                switch entry {
+                case .item(let kind):
+                    _ = self.companion.buy(kind)
+                case .egg(let tier):
+                    _ = self.companion.buyEgg(tier)
+                    self.select(.home)   // show the new egg straight away, as macOS does after a reroll
+                }
+                Task { @MainActor in await self.loadSpritesAndRefresh() }
+            })
+            return row
+        }
+
         let button = gtk_button_new_with_label(l.buy)!
         gtk_widget_set_valign(button, GTK_ALIGN_CENTER)
         // Insufficient balance disables the button rather than hiding it, so the price stays
         // legible as a goal instead of the row silently losing its action.
         gtk_widget_set_sensitive(button, affordable ? 1 : 0)
+        // This arms the ladder; it never buys. How many steps stand between here and the purchase
+        // is `ActionConfirmPolicy`'s call, not this row's.
         gtkConnect(UnsafeMutableRawPointer(button), signal: "clicked",
                    box: GtkCallbackBox { [weak self] in
                        guard let self else { return }
-                       switch entry {
-                       case .item(let kind): _ = self.companion.buy(kind)
-                       case .egg(let tier):  _ = self.companion.buyEgg(tier)
-                       }
-                       Task { @MainActor in await self.loadSpritesAndRefresh() }
+                       self.pendingConfirm = (
+                           .shop(entry),
+                           ActionConfirmPolicy.steps(buying: entry,
+                                                     currentIsShiny: self.companion.currentIsShiny))
+                       self.refresh()
                    })
         Gtk.pack(row, button)
         return row
@@ -436,11 +520,14 @@ final class PopoverWindow {
         Gtk.addClass(row, "ptb-card")
         Gtk.pack(row, itemIcon(kind, size: 32))
 
+        // Same swap as the shop rows: while armed, the count line becomes the question.
+        let armed = armedStep(for: .bag(kind))
         let text = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 2)
         gtk_widget_set_valign(text, GTK_ALIGN_CENTER)
         Gtk.pack(text, Gtk.label("<b>\(Gtk.escape(l.itemName(kind)))</b>"))
-        let countLabel = Gtk.label("<span size='small'>\(Gtk.escape(l.ownedCount(count)))</span>")
-        Gtk.addClass(countLabel, "ptb-muted")
+        let body = armed == nil ? l.ownedCount(count) : l.useOnCurrent(companion.displayName)
+        let countLabel = Gtk.label("<span size='small'>\(Gtk.escape(body))</span>", wrap: true)
+        Gtk.addClass(countLabel, armed == nil ? "ptb-muted" : "ptb-warning")
         Gtk.pack(text, countLabel)
         Gtk.pack(row, text, expand: true)
 
@@ -452,29 +539,103 @@ final class PopoverWindow {
             return row
         }
 
+        if armed != nil {
+            Gtk.pack(row, confirmControls(label: l.use, destructive: false, l) { [weak self] in
+                guard let self, self.advanceConfirm(.bag(kind)) else { return }
+                switch kind {
+                case .rareCandy: _ = self.companion.useRareCandy()
+                case .mint:      _ = self.companion.useMint()
+                case .shinyCharm: break   // passive; handled above
+                }
+                self.select(.home)   // the evolution / nature-change toast plays on Home, as on macOS
+                Task { @MainActor in await self.loadSpritesAndRefresh() }
+            })
+            return row
+        }
+
         let button = gtk_button_new_with_label(l.useItem)!
         gtk_widget_set_valign(button, GTK_ALIGN_CENTER)
         // Consumables need something to act on; before the first hatch there is no companion.
         gtk_widget_set_sensitive(button, companion.hasActive ? 1 : 0)
         gtk_widget_set_tooltip_text(button, companion.hasActive ? nil : l.useAfterHatch)
+        // Arms only — a candy spent on the wrong stage is not recoverable either.
         gtkConnect(UnsafeMutableRawPointer(button), signal: "clicked",
                    box: GtkCallbackBox { [weak self] in
                        guard let self else { return }
-                       switch kind {
-                       case .rareCandy: _ = self.companion.useRareCandy()
-                       case .mint:      _ = self.companion.useMint()
-                       case .shinyCharm: break   // passive; handled above
-                       }
-                       Task { @MainActor in await self.loadSpritesAndRefresh() }
+                       self.pendingConfirm = (.bag(kind), ActionConfirmPolicy.steps(using: kind))
+                       self.refresh()
                    })
         Gtk.pack(row, button)
         return row
     }
 
+    // MARK: Confirmation ladder
+
+    /// The step the row for `target` should be showing, or nil when it is not the armed row.
+    private func armedStep(for target: ConfirmTarget) -> ActionConfirmPolicy.Step? {
+        guard let pending = pendingConfirm, pending.target == target else { return nil }
+        return pending.steps.first
+    }
+
+    /// Clear one step off the armed ladder. Returns true when nothing is left to ask and the caller
+    /// should commit; false when a further step was shown instead (the panel is already rebuilt).
+    private func advanceConfirm(_ target: ConfirmTarget) -> Bool {
+        guard let pending = pendingConfirm, pending.target == target else { return false }
+        let rest = Array(pending.steps.dropFirst())
+        guard rest.isEmpty else {
+            pendingConfirm = (target, rest)
+            refresh()
+            return false
+        }
+        pendingConfirm = nil
+        return true
+    }
+
+    private func shopPrompt(step: ActionConfirmPolicy.Step, entry: ShopEntry, _ l: L) -> String {
+        switch (step, entry) {
+        case (.shinyWarning, _):          return l.freshEggShinyWarning
+        case (.confirm, .egg(let tier)):  return l.eggConfirm(companion.displayName, l.eggName(tier))
+        case (.confirm, .item(let kind)): return l.buyConfirm(l.itemName(kind))
+        }
+    }
+
+    private func shopConfirmLabel(step: ActionConfirmPolicy.Step, _ l: L) -> String {
+        step == .shinyWarning ? l.freshEggDiscardShiny : l.buy
+    }
+
+    /// The Confirm/Cancel pair that stands in for a row's action button while it is armed.
+    ///
+    /// Cancel is drawn last but is the plain button, and nothing is set as the window default — an
+    /// action that cannot be undone should not be reachable by a stray Return, the same reasoning
+    /// `ImportConfirmPolicy` encodes for the import dialog.
+    private func confirmControls(label: String, destructive: Bool, _ l: L,
+                                 commit: @escaping () -> Void) -> Widget {
+        let box = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 4)
+        gtk_widget_set_valign(box, GTK_ALIGN_CENTER)
+
+        let go = gtk_button_new_with_label(label)!
+        if destructive { Gtk.addClass(go, "destructive-action") }
+        gtkConnect(UnsafeMutableRawPointer(go), signal: "clicked", box: GtkCallbackBox(commit))
+        Gtk.pack(box, go)
+
+        let cancel = gtk_button_new_with_label(l.cancel)!
+        gtkConnect(UnsafeMutableRawPointer(cancel), signal: "clicked",
+                   box: GtkCallbackBox { [weak self] in
+                       guard let self else { return }
+                       self.pendingConfirm = nil
+                       self.refresh()
+                   })
+        Gtk.pack(box, cancel)
+        return box
+    }
+
     // MARK: Collection
 
     private func buildCollection(into page: Widget, _ l: L) {
-        guard !companion.dexEntries.isEmpty else {
+        // The empty-state short-circuit has to consider the Box too: `dexEntries` already counts
+        // boxed mons, but a held egg with an empty box and no captures still needs the tab to open,
+        // otherwise the only way back to a paid egg is unreachable.
+        guard !companion.dexEntries.isEmpty || companion.hasHeldEgg else {
             let empty = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 6)
             Gtk.margins(empty, top: 24)
             Gtk.pack(empty, Gtk.label("<b>\(Gtk.escape(l.dexEmptyTitle))</b>", align: GTK_ALIGN_CENTER))
@@ -490,7 +651,8 @@ final class PopoverWindow {
         // per species, the log keeps every capture.
         let segments = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 6)
         gtk_widget_set_halign(segments, GTK_ALIGN_CENTER)
-        for (mode, title) in [(CollectionMode.dex, l.dexTitle), (.log, l.catchLogTitle)] {
+        for (mode, title) in [(CollectionMode.dex, l.dexTitle), (.log, l.catchLogTitle),
+                              (.box, boxSegmentTitle(l))] {
             let button = gtk_button_new_with_label(title)!
             Gtk.addClass(button, "ptb-chip")
             if mode == collectionMode { Gtk.addClass(button, "ptb-chip-on") }
@@ -504,12 +666,119 @@ final class PopoverWindow {
             Gtk.pack(segments, button)
         }
         Gtk.pack(page, segments)
-        Gtk.pack(page, rarityFilterRow(l))
+        // The rarity filter belongs to the two collection views; the Box is a short list of
+        // individuals you act on, and filtering it would just hide the one you came for.
+        if collectionMode != .box { Gtk.pack(page, rarityFilterRow(l)) }
 
         switch collectionMode {
         case .dex: buildSpeciesDex(into: page, l)
         case .log: buildCatchLog(into: page, l)
+        case .box: buildBox(into: page, l)
         }
+    }
+
+    /// Box tab label, carrying the count so a Pokémon waiting in there is visible without opening it.
+    private func boxSegmentTitle(_ l: L) -> String {
+        companion.boxCount > 0 ? "\(l.boxTitle) (\(companion.boxCount))" : l.boxTitle
+    }
+
+    // MARK: Box
+
+    private func buildBox(into page: Widget, _ l: L) {
+        // The held egg comes first: it is the thing with a cost attached, and the shop refuses to
+        // sell a new egg while it exists, so the way to resolve it must be the first thing seen.
+        if companion.hasHeldEgg { Gtk.pack(page, heldEggCard(l)) }
+
+        guard !companion.boxedMons.isEmpty else {
+            let empty = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 6)
+            Gtk.margins(empty, top: 24)
+            Gtk.pack(empty, Gtk.label("<b>\(Gtk.escape(l.boxEmptyTitle))</b>", align: GTK_ALIGN_CENTER))
+            let hint = Gtk.label("<span size='small'>\(Gtk.escape(l.boxEmptyHint))</span>",
+                                 align: GTK_ALIGN_CENTER, wrap: true)
+            Gtk.addClass(hint, "ptb-muted")
+            Gtk.pack(empty, hint)
+            Gtk.pack(page, empty)
+            return
+        }
+        for (index, mon) in companion.boxedMons.enumerated() {
+            Gtk.pack(page, boxRow(index, mon, l))
+        }
+    }
+
+    private func heldEggCard(_ l: L) -> Widget {
+        let card = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 10)
+        Gtk.addClass(card, "ptb-card")
+        Gtk.pack(card, spriteImage("egg", size: 32) ?? Gtk.label("<span size='x-large'>🥚</span>"))
+
+        let text = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 2)
+        gtk_widget_set_valign(text, GTK_ALIGN_CENTER)
+        Gtk.pack(text, Gtk.label("<b>\(Gtk.escape(l.boxHeldEggTitle))</b>"))
+        var detail = l.boxHeldEggHint
+        if let tier = companion.heldEggGuarantee { detail = "\(l.eggGuaranteeHint(tier)) · \(detail)" }
+        let hint = Gtk.label("<span size='small'>\(Gtk.escape(detail))</span>", wrap: true)
+        Gtk.addClass(hint, "ptb-muted")
+        Gtk.pack(text, hint)
+        let progress = Gtk.label(
+            "<span size='small'>\(Int((companion.heldEggProgress * 100).rounded()))%</span>")
+        Gtk.addClass(progress, "ptb-muted")
+        Gtk.pack(text, progress)
+        Gtk.pack(card, text, expand: true)
+
+        let button = gtk_button_new_with_label(l.boxReturnToEgg)!
+        gtk_widget_set_valign(button, GTK_ALIGN_CENTER)
+        gtk_widget_set_sensitive(button, companion.canReturnToHeldEgg ? 1 : 0)
+        gtkConnect(UnsafeMutableRawPointer(button), signal: "clicked",
+                   box: GtkCallbackBox { [weak self] in
+                       guard let self else { return }
+                       _ = self.companion.returnToHeldEgg()
+                       self.select(.home)
+                       Task { @MainActor in await self.loadSpritesAndRefresh() }
+                   })
+        Gtk.pack(card, button)
+        return card
+    }
+
+    private func boxRow(_ index: Int, _ mon: MonState, _ l: L) -> Widget {
+        let row = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 10)
+        Gtk.addClass(row, "ptb-card")
+        // `displayShiny` rather than `mon.isShiny` — a disguised Ditto must not show its shiny
+        // sprite here before the reveal.
+        let shiny = CompanionStore.displayShiny(mon)
+        Gtk.pack(row, spriteImage("\(mon.currentID)-\(shiny)", size: 40)
+                      ?? spriteImage("\(mon.currentID)-false", size: 40)
+                      ?? Gtk.label("<span size='x-large'>❔</span>"))
+
+        let text = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 2)
+        gtk_widget_set_valign(text, GTK_ALIGN_CENTER)
+        let shinyMark = shiny ? "✨ " : ""
+        let name = companion.boxedDisplayName(mon)
+        Gtk.pack(text, Gtk.label("<b>\(Gtk.escape(shinyMark + name))</b>"))
+        let meta = Gtk.label("<span size='small'>\(Gtk.escape(l.rarityLabel(mon.rarity))) · "
+            + "\(Gtk.escape(l.stage(mon.stageIndex + 1, mon.totalForms)))</span>")
+        Gtk.addClass(meta, "ptb-muted")
+        Gtk.pack(text, meta)
+        // Growth is the whole reason the Box beats a discard — show that it survived.
+        let growth = Gtk.label("<span size='small'>\(Gtk.escape(l.boxGrowth)) "
+            + "\(Gtk.escape(TokenFormatter.compact(mon.usedAtStage)))</span>")
+        Gtk.addClass(growth, "ptb-muted")
+        Gtk.pack(text, growth)
+        Gtk.pack(row, text, expand: true)
+
+        let button = gtk_button_new_with_label(l.boxWithdraw)!
+        gtk_widget_set_valign(button, GTK_ALIGN_CENTER)
+        gtk_widget_set_sensitive(button, companion.canWithdraw(at: index) ? 1 : 0)
+        if companion.hasActive {
+            gtk_widget_set_tooltip_text(button, l.boxSwapHint(companion.displayName))
+        }
+        gtkConnect(UnsafeMutableRawPointer(button), signal: "clicked",
+                   box: GtkCallbackBox { [weak self] in
+                       guard let self else { return }
+                       _ = self.companion.withdraw(at: index)
+                       self.select(.home)
+                       Task { @MainActor in await self.loadSpritesAndRefresh() }
+                   })
+        Gtk.pack(row, button)
+        return row
     }
 
     /// Rarest first, as macOS orders them — deliberately not the enum's declaration order.
@@ -653,7 +922,7 @@ final class PopoverWindow {
     private func catchLogRow(_ entry: DexEntry, _ l: L) -> Widget {
         let row = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 10)
         Gtk.addClass(row, "ptb-card")
-        if companion.isActiveDexEntry(entry) { Gtk.addClass(row, "ptb-stage-current") }
+        if companion.isRaisingDexEntry(entry) { Gtk.addClass(row, "ptb-stage-current") }
         if let image = spriteImage("\(entry.finalID)-\(entry.isShiny)", size: 44)
             ?? spriteImage("\(entry.finalID)-false", size: 44) {
             Gtk.pack(row, image)
@@ -673,11 +942,16 @@ final class PopoverWindow {
         Gtk.pack(text, Gtk.label("<span size='small'><b>\(heading)</b></span>", wrap: true))
 
         var facts = [l.rarityLabel(entry.rarity)]
-        if let nature = entry.nature { facts.append(nature.rawValue) }
+        // Localised name, not `rawValue` — the raw case is an English identifier that leaked into
+        // the UI. And the growth effect beside it, so a nature reads as a trait rather than a label.
+        if let nature = entry.nature {
+            facts.append(nature.name(companion.language))
+            if let effect = l.natureGrowthEffect(nature) { facts.append(effect) }
+        }
         if let caughtAt = entry.caughtAt {
             facts.append(Self.dateFormatter(companion.language).string(from: caughtAt))
         }
-        if companion.isActiveDexEntry(entry) { facts.append(l.dexRaising) }
+        if companion.isRaisingDexEntry(entry) { facts.append(l.dexRaising) }
         let detail = Gtk.label("<span size='small'>\(Gtk.escape(facts.joined(separator: " · ")))</span>",
                                wrap: true)
         Gtk.addClass(detail, "ptb-muted")
@@ -706,7 +980,14 @@ final class PopoverWindow {
         Gtk.pack(page, totalsCard(l))
         if let line = evolutionLine() { Gtk.pack(page, line) }
         if !store.snapshots.isEmpty { Gtk.pack(page, providerCard(l)) }
-        if let limits = store.limits { Gtk.pack(page, limitsCard(l, limits)) }
+        // A missing limits card and a hidden one look identical on screen, so the placeholder is not
+        // optional decoration: without it a restart during a 429 backoff reads as "the feature broke"
+        // (2026-08-19 report). macOS keeps its header and a load row for the same reason.
+        if let limits = store.limits {
+            Gtk.pack(page, limitsCard(l, limits))
+        } else if store.snapshots.contains(where: { $0.providerID == "claude_code" }) {
+            Gtk.pack(page, limitsPlaceholderCard(l))
+        }
         if store.snapshots.isEmpty {
             Gtk.pack(page, Gtk.label("<span size='small'>\(Gtk.escape(l.dexEmptyHint))</span>",
                                      align: GTK_ALIGN_CENTER))
@@ -714,58 +995,176 @@ final class PopoverWindow {
     }
 
     /// Sprite + name + rarity + progress, matching the macOS home header.
+    /// The Home hero — the companion, centred and large.
+    ///
+    /// It used to be a 72px thumbnail in a row, which made the token counter the biggest thing on
+    /// screen. For an app whose point is the pet, the pet should be the thing you look at; the
+    /// numbers are why it grows, not what it is. The vertical layout also uses the panel height,
+    /// which the old row left mostly empty.
     private func companionCard(_ l: L) -> Widget {
-        let card = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 12)
+        let card = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 6)
         Gtk.addClass(card, "ptb-card")
+        Gtk.addClass(card, "ptb-hero")
 
-        let key = companion.currentSpeciesID.map { "\($0)-\(companion.currentIsShiny)" } ?? "egg"
-        if let data = spriteCache[key], let pixbuf = SpriteRenderer.render(data, size: 72) {
-            let image = gtk_image_new_from_pixbuf(pixbuf)!
-            g_object_unref(UnsafeMutableRawPointer(pixbuf))
-            gtk_widget_set_valign(image, GTK_ALIGN_CENTER)
-            Gtk.pack(card, image)
-            // The static frame goes up first so the row never appears empty, then the animation
-            // takes over the same widget if this species has one.
-            startAnimation(on: image, key: key)
-        }
-
-        let text = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 4)
-        gtk_widget_set_valign(text, GTK_ALIGN_CENTER)
-
-        let heading = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 6)
-        Gtk.pack(heading, Gtk.label("<span size='large'><b>\(Gtk.escape(companion.displayName))</b></span>"))
-        if let rarity = companion.rarity {
-            let badge = Gtk.label(Gtk.escape(rarity.rawValue.uppercased()))
-            Gtk.addClass(badge, "ptb-badge")
-            gtk_widget_set_valign(badge, GTK_ALIGN_CENTER)
-            Gtk.pack(heading, badge)
-        }
-        Gtk.pack(text, heading)
+        Gtk.pack(card, heroSprite())
+        Gtk.pack(card, heroHeading(l))
 
         // Egg and hatched companion track different quantities, so the subtitle, the meter and the
         // remaining-amount line all switch together.
         let stage = companion.isEgg ? l.eggIncubating
             : (companion.isFinalStage ? l.finalForm : companion.stageText)
-        let stageLabel = Gtk.label("<span size='small'>\(Gtk.escape(stage))</span>")
+        // The nature's growth effect rides on the stage line: this is the one place the player
+        // watches the bar move, so an unexplained ±10% would read as the meter being wrong.
+        var stageText = stage
+        if !companion.isEgg, let effect = l.natureGrowthEffect(companion.currentNature) {
+            stageText += " · \(effect)"
+        }
+        let stageLabel = Gtk.label("<span size='small'>\(Gtk.escape(stageText))</span>",
+                                   align: GTK_ALIGN_CENTER)
         Gtk.addClass(stageLabel, "ptb-muted")
-        Gtk.pack(text, stageLabel)
+        Gtk.pack(card, stageLabel)
 
         let fraction = companion.isEgg ? companion.eggProgress : companion.progress
-        Gtk.pack(text, Gtk.meter(fraction: fraction))
+        // Tinted by rarity so the bar itself says what you are raising. An egg has no rarity yet
+        // (the roll happens at hatch), so it keeps the default accent.
+        let meter = Gtk.meter(fraction: fraction,
+                              cssClass: companion.rarity.map { "ptb-meter-\($0.rawValue)" })
+        Gtk.addClass(meter, "ptb-meter-hero")
+        Gtk.margins(meter, top: 4, start: 24, end: 24)
+        // Hover detail: the compact form on screen ("109.1M") hides the exact figure, and this is
+        // the number people actually want to check against their own usage.
+        gtk_widget_set_tooltip_text(meter, companion.isEgg
+            ? l.eggToHatch(TokenFormatter.grouped(companion.eggTokensToHatch))
+            : l.toGraduation(TokenFormatter.grouped(companion.tokensToNext)))
+        Gtk.pack(card, meter)
 
         let remaining = companion.isEgg
             ? l.eggToHatch(TokenFormatter.compact(companion.eggTokensToHatch))
             : l.toGraduation(TokenFormatter.compact(companion.tokensToNext))
-        let remainingLabel = Gtk.label("<span size='small'>\(Gtk.escape(remaining))</span>")
+        let remainingLabel = Gtk.label(
+            "<span size='small'>\(Gtk.escape(remaining))  ·  \(Int((fraction * 100).rounded()))%</span>",
+            align: GTK_ALIGN_CENTER)
         Gtk.addClass(remainingLabel, "ptb-muted")
-        Gtk.pack(text, remainingLabel)
+        Gtk.pack(card, remainingLabel)
 
-        let status = Gtk.label("<span size='small'>\(Gtk.escape(companion.statusLine))</span>", wrap: true)
-        Gtk.addClass(status, "ptb-muted")
-        Gtk.pack(text, status)
+        // A pet reaction takes the status line's place while it is showing — two lines of chatter
+        // stacked on top of each other reads as noise, and the reaction is the one you just asked for.
+        let statusText = companion.petReaction ?? companion.statusLine
+        let status = Gtk.label("<span size='small'>\(Gtk.escape(statusText))</span>",
+                               align: GTK_ALIGN_CENTER, wrap: true)
+        Gtk.addClass(status, companion.petReaction != nil ? "ptb-reaction" : "ptb-muted")
+        Gtk.pack(card, status)
 
-        Gtk.pack(card, text, expand: true)
         return card
+    }
+
+    /// The sprite, clickable. Clicking pets the companion — flavour only, no game state changes.
+    private func heroSprite() -> Widget {
+        let key = companion.currentSpeciesID.map { "\($0)-\(companion.currentIsShiny)" } ?? "egg"
+        let holder = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 0)
+        gtk_widget_set_halign(holder, GTK_ALIGN_CENTER)
+
+        guard let data = spriteCache[key], let pixbuf = SpriteRenderer.render(data, size: 112) else {
+            return holder
+        }
+        let image = gtk_image_new_from_pixbuf(pixbuf)!
+        g_object_unref(UnsafeMutableRawPointer(pixbuf))
+        // A plain GtkImage takes no input, so the click has to go through an event box. Flat +
+        // no relief keeps it looking like a sprite rather than a button with a picture in it.
+        let button = gtk_button_new()!
+        gtk_button_set_relief(
+            UnsafeMutableRawPointer(button).assumingMemoryBound(to: GtkButton.self), GTK_RELIEF_NONE)
+        Gtk.addClass(button, "ptb-sprite-button")
+        gtk_container_add(asContainer(button), image)
+        gtk_widget_set_tooltip_text(button, companion.l.petTooltip)
+        gtkConnect(UnsafeMutableRawPointer(button), signal: "clicked",
+                   box: GtkCallbackBox { [weak self] in
+                       guard let self else { return }
+                       self.companion.pet()
+                       self.refresh()
+                   })
+        Gtk.pack(holder, button)
+        // The static frame goes up first so the card never appears empty, then the animation
+        // takes over the same widget if this species has one.
+        startAnimation(on: image, key: key)
+        return holder
+    }
+
+    /// Name + rarity badge. The name is a button: clicking it opens the rename row.
+    private func heroHeading(_ l: L) -> Widget {
+        if renamingCompanion { return renameRow(l) }
+        let heading = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 6)
+        gtk_widget_set_halign(heading, GTK_ALIGN_CENTER)
+
+        let nameButton = gtk_button_new()!
+        gtk_button_set_relief(
+            UnsafeMutableRawPointer(nameButton).assumingMemoryBound(to: GtkButton.self), GTK_RELIEF_NONE)
+        let nameLabel = Gtk.label("<span size='x-large'><b>\(Gtk.escape(companion.displayName))</b></span>")
+        gtk_container_add(asContainer(nameButton), nameLabel)
+        // Renaming needs something to rename; an egg has no individual yet.
+        gtk_widget_set_sensitive(nameButton, companion.hasActive ? 1 : 0)
+        if companion.hasActive { gtk_widget_set_tooltip_text(nameButton, l.renameTooltip) }
+        gtkConnect(UnsafeMutableRawPointer(nameButton), signal: "clicked",
+                   box: GtkCallbackBox { [weak self] in
+                       guard let self, self.companion.hasActive else { return }
+                       self.renamingCompanion = true
+                       self.refresh()
+                   })
+        Gtk.pack(heading, nameButton)
+
+        if let rarity = companion.rarity {
+            let badge = Gtk.label(Gtk.escape(l.rarityLabel(rarity).uppercased()))
+            Gtk.addClass(badge, "ptb-badge")
+            Gtk.addClass(badge, "ptb-rarity-\(rarity.rawValue)")
+            gtk_widget_set_valign(badge, GTK_ALIGN_CENTER)
+            Gtk.pack(heading, badge)
+        }
+        return heading
+    }
+
+    /// Inline rename — an entry plus Save. Inline rather than a dialog for the same reason the
+    /// shop confirmations are inline: a transient window losing focus takes the dialog with it.
+    private func renameRow(_ l: L) -> Widget {
+        let row = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 4)
+        let entryRow = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 6)
+        gtk_widget_set_halign(entryRow, GTK_ALIGN_CENTER)
+
+        let entry = gtk_entry_new()!
+        gtk_entry_set_text(asEntry(entry), companion.displayName)
+        gtk_entry_set_max_length(asEntry(entry), Int32(CompanionStore.nicknameMaxLength))
+        gtk_entry_set_width_chars(asEntry(entry), 16)
+        gtk_entry_set_placeholder_text(asEntry(entry), companion.speciesDisplayName)
+        Gtk.pack(entryRow, entry)
+
+        let commit = GtkCallbackBox { [weak self] in
+            guard let self else { return }
+            let text = gtk_entry_get_text(asEntry(entry)).map { String(cString: $0) }
+            self.companion.setNickname(text)
+            self.renamingCompanion = false
+            self.refresh()
+        }
+        // Enter in the field commits, as well as the button — a one-field form that only accepts
+        // a mouse click is the kind of thing people try Enter on first and conclude is broken.
+        gtkConnect(UnsafeMutableRawPointer(entry), signal: "activate", box: commit)
+
+        let saveButton = gtk_button_new_with_label(l.save)!
+        gtkConnect(UnsafeMutableRawPointer(saveButton), signal: "clicked", box: commit)
+        Gtk.pack(entryRow, saveButton)
+
+        let cancelButton = gtk_button_new_with_label(l.cancel)!
+        gtkConnect(UnsafeMutableRawPointer(cancelButton), signal: "clicked",
+                   box: GtkCallbackBox { [weak self] in
+                       self?.renamingCompanion = false
+                       self?.refresh()
+                   })
+        Gtk.pack(entryRow, cancelButton)
+        Gtk.pack(row, entryRow)
+
+        let hint = Gtk.label("<span size='small'>\(Gtk.escape(l.nicknameHint))</span>",
+                             align: GTK_ALIGN_CENTER, wrap: true)
+        Gtk.addClass(hint, "ptb-muted")
+        Gtk.pack(row, hint)
+        return row
     }
 
     /// A row per provider currently reporting an incident.
@@ -928,14 +1327,49 @@ final class PopoverWindow {
         return card
     }
 
-    /// The official Claude limit windows.
-    /// Utilisation only for now — reset countdowns are still to build (see ROADMAP.md).
+    /// The limits card with no values yet — header plus why. Ordered most specific first: an expired
+    /// session needs a re-login, a retained fetch error explains itself (429 and friends), and before
+    /// the first poll there is nothing wrong to report.
+    private func limitsPlaceholderCard(_ l: L) -> Widget {
+        let card = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 4)
+        Gtk.addClass(card, "ptb-card")
+        let caption = Gtk.label(Gtk.escape(l.limitsOfficial))
+        Gtk.addClass(caption, "ptb-section")
+        Gtk.pack(card, caption)
+
+        let reason: String
+        if store.disableKeychainAccess {
+            // The fetch is switched off, so nothing is loading and nothing is retrying. Saying
+            // "Loading…" forever is the same silent-hide problem in a different costume.
+            reason = l.limitRefreshNoCredential
+        } else if store.limitsAuthExpired {
+            reason = l.claudeAuthExpiredTitle
+        } else if let error = store.limitsErrorText {
+            reason = error
+        } else {
+            reason = l.limitsLoading
+        }
+        let body = Gtk.label("<span size='small'>\(Gtk.escape(reason))</span>", wrap: true)
+        Gtk.addClass(body, "ptb-muted")
+        Gtk.pack(card, body)
+        return card
+    }
+
+    /// The official Claude limit windows — utilisation, reset countdown and burn-rate forecast.
     private func limitsCard(_ l: L, _ limits: LimitStatus) -> Widget {
         let card = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 8)
         Gtk.addClass(card, "ptb-card")
         let caption = Gtk.label(Gtk.escape(l.limitsOfficial))
         Gtk.addClass(caption, "ptb-section")
         Gtk.pack(card, caption)
+        // Values restored from disk on launch, or left over through a long 429 backoff, must never
+        // read as "just fetched" — a stale percentage presented as current is worse than no card.
+        if store.claudeLimitsStale {
+            let stale = Gtk.label("<span size='small'>\(Gtk.escape(l.staleLimits))"
+                + "\(store.limitsUpdatedAt.flatMap { RelativeTime.elapsed(since: $0) }.map { " · " + $0 } ?? "")</span>")
+            Gtk.addClass(stale, "ptb-warning")
+            Gtk.pack(card, stale)
+        }
 
         let windows: [(String, LimitWindow?)] = [
             (l.fiveHourSession, limits.fiveHour),

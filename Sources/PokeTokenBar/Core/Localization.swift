@@ -40,6 +40,9 @@ struct L {
     var staleLimits: String { t("갱신 지연", "Stale", "更新遅延", "Desactualizado") }
     var refresh: String { t("갱신", "Refresh", "更新", "Actualizar") }
     var limitsTapToLoad: String { t("공식 한도 불러오기", "Load official limits", "公式上限を読み込む", "Cargar límites oficiales") }
+    /// 값 없이 한도 카드를 그릴 때(첫 폴 전). macOS 의 "불러오기" 버튼과 달리 Linux 는 Keychain
+    /// 프롬프트가 없어 자동 폴이 그대로 읽으므로, 누를 것이 아니라 기다리면 된다는 것만 알린다.
+    var limitsLoading: String { t("공식 한도를 불러오는 중이에요…", "Loading official limits…", "公式上限を読み込み中…", "Cargando límites oficiales…") }
 
     /// 프로바이더 상태 페이지 인시던트 지표 → 현지화 라벨(표시 전용).
     func providerStatusLabel(_ indicator: ProviderStatusIndicator) -> String {
@@ -369,6 +372,104 @@ struct L {
     func dexTotal(_ n: Int) -> String { t("총 \(n)마리", "\(n) total", "全\(n)匹", "\(n) en total") }
     /// 포획 로그 = 개체 단위 기록(같은 라인 중복이 정상). 도감 = 종 단위 집계.
     var catchLogTitle: String { t("포획 로그", "Catch log", "捕獲ログ", "Registro de capturas") }
+
+    // MARK: 박스(PC) — 알 구매로 물러난 개체들이 사는 곳
+    var boxTitle: String { t("박스", "Box", "ボックス", "Caja") }
+    var boxEmptyTitle: String { t("박스가 비어 있어요", "Your Box is empty", "ボックスは空です", "Tu Caja está vacía") }
+    var boxEmptyHint: String {
+        t("알을 사면 지금 포켓몬이 여기로 들어와요. 언제든 다시 꺼낼 수 있어요.",
+          "Buy an egg and your current Pokémon moves here. You can bring it back any time.",
+          "タマゴを買うと今のポケモンがここに入ります。いつでも戻せます。",
+          "Compra un huevo y tu Pokémon actual vendrá aquí. Puedes recuperarlo cuando quieras.")
+    }
+    var boxWithdraw: String { t("데리고 나가기", "Take out", "つれていく", "Sacar") }
+    /// 교대라는 점을 버튼 옆에서 알린다 — 누르면 지금 개체가 박스로 들어간다.
+    func boxSwapHint(_ name: String) -> String {
+        t("\(name)은(는) 박스로 들어가요", "\(name) goes into the Box", "\(name) はボックスに入ります",
+          "\(name) irá a la Caja")
+    }
+    var boxHeldEggTitle: String { t("보관 중인 알", "Egg on hold", "預けているタマゴ", "Huevo en espera") }
+    var boxHeldEggHint: String {
+        t("품던 알을 옆에 두었어요. 돌아가면 그대로 이어서 품어요.",
+          "Your egg is set aside. Go back to it and incubation continues where it left off.",
+          "タマゴを横に置いています。戻ればそのまま孵化を続けます。",
+          "Tu huevo está apartado. Vuelve a él y la incubación continuará donde lo dejaste.")
+    }
+    var boxReturnToEgg: String { t("알로 돌아가기", "Back to the egg", "タマゴに戻る", "Volver al huevo") }
+    /// 상점에서 알 구매가 막힌 이유 — 보류된 알이 있으면 새 알을 팔지 않는다.
+    var boxHeldEggBlocksPurchase: String {
+        t("보관 중인 알이 있어요 — 먼저 그 알로 돌아가세요.",
+          "You already have an egg on hold — go back to it first.",
+          "預けているタマゴがあります — 先にそちらへ戻ってください。",
+          "Ya tienes un huevo en espera — vuelve a él primero.")
+    }
+    var boxGrowth: String { t("성장", "Growth", "成長", "Crecimiento") }
+
+    // MARK: 쓰다듬기 반응 (클릭) — 상태마다 다른 말. 자는 애가 응원하면 화면이 스스로 모순된다.
+    func petReactions(state: CompanionStateKind, name: String) -> [String] {
+        switch state {
+        case .sleep:
+            return [t("\(name)은(는) 새근새근 자고 있어요.", "\(name) is fast asleep.",
+                      "\(name) はぐっすり眠っています。", "\(name) está profundamente dormido."),
+                    t("…zzZ", "…zzZ", "…zzZ", "…zzZ"),
+                    t("\(name)이(가) 뒤척였어요.", "\(name) stirs a little.",
+                      "\(name) が寝返りをうちました。", "\(name) se remueve un poco.")]
+        case .tired:
+            return [t("\(name)이(가) 좀 지쳐 보여요.", "\(name) looks worn out.",
+                      "\(name) は少し疲れているようです。", "\(name) parece agotado."),
+                    t("\(name)이(가) 하품을 했어요.", "\(name) yawns.",
+                      "\(name) があくびをしました。", "\(name) bosteza."),
+                    t("슬슬 쉬어 갈까요?", "Maybe time for a break?",
+                      "そろそろ休憩しませんか？", "¿Quizá es hora de un descanso?")]
+        case .focus:
+            return [t("\(name)이(가) 잔뜩 신이 났어요!", "\(name) is fired up!",
+                      "\(name) はやる気まんまんです！", "¡\(name) está a tope!"),
+                    t("\(name)이(가) 빙글빙글 돌았어요!", "\(name) spins around!",
+                      "\(name) がくるくる回りました！", "¡\(name) da vueltas!"),
+                    t("좋은 흐름이에요!", "You two are on a roll!",
+                      "いい調子です！", "¡Vais a buen ritmo!")]
+        case .egg:
+            return [t("알이 살짝 흔들렸어요.", "The egg wobbles a little.",
+                      "タマゴが少し揺れました。", "El huevo se mueve un poco."),
+                    t("안에서 무언가 움직여요…", "Something moves inside…",
+                      "中で何かが動いています…", "Algo se mueve dentro…"),
+                    t("조금만 더 기다려요.", "Just a little longer.",
+                      "もう少しの辛抱です。", "Solo un poco más.")]
+        default:
+            return [t("\(name)이(가) 당신을 올려다봤어요.", "\(name) looks up at you.",
+                      "\(name) があなたを見上げました。", "\(name) te mira."),
+                    t("\(name)이(가) 기분 좋아 보여요.", "\(name) seems happy.",
+                      "\(name) はごきげんです。", "\(name) parece contento."),
+                    t("\(name)이(가) 폴짝 뛰었어요!", "\(name) gives a little hop!",
+                      "\(name) がぴょんと跳ねました！", "¡\(name) da un saltito!"),
+                    t("\(name)이(가) 코를 비볐어요.", "\(name) nuzzles your cursor.",
+                      "\(name) が鼻をすり寄せました。", "\(name) se acurruca en tu cursor.")]
+        }
+    }
+    func petReactionFallback(_ name: String) -> String {
+        t("\(name)이(가) 반응했어요.", "\(name) reacts.", "\(name) が反応しました。", "\(name) reacciona.")
+    }
+
+    // MARK: 이름 바꾸기
+    var nicknameTitle: String { t("이름 바꾸기", "Rename", "ニックネーム", "Cambiar nombre") }
+    var nicknameHint: String {
+        t("비워 두면 종 이름으로 돌아가요.", "Leave empty to use the species name.",
+          "空にすると種の名前に戻ります。", "Déjalo vacío para usar el nombre de la especie.")
+    }
+    var save: String { t("저장", "Save", "保存", "Guardar") }
+    var renameTooltip: String { t("눌러서 이름 바꾸기", "Click to rename", "クリックで名前を変更", "Clic para renombrar") }
+    var petTooltip: String { t("눌러서 쓰다듬기", "Click to pet", "クリックでなでる", "Clic para acariciar") }
+
+    // MARK: 성격 효과 (G3) — 보이지 않는 성장 속도 차이는 결함으로 읽힌다
+    /// 성격이 성장 속도에 주는 효과. 1.0 배(17종)면 nil — 붙일 말이 없다.
+    func natureGrowthEffect(_ nature: PokemonNature?) -> String? {
+        guard let nature else { return nil }
+        switch nature.growthMultiplier {
+        case let m where m > 1: return t("빨리 자람 +10%", "Fast grower +10%", "成長が速い +10%", "Crece rápido +10%")
+        case let m where m < 1: return t("천천히 자람 −10%", "Slow grower −10%", "成長が遅い −10%", "Crece despacio −10%")
+        default: return nil
+        }
+    }
     /// 도감 총계는 개체가 아니라 종 수 — 로그의 dexTotal("총 N마리")과 단위가 다르다.
     func dexSpeciesTotal(_ n: Int) -> String { t("\(n)종", "\(n) species", "\(n)種", "\(n) especies") }
     func dexPageLabel(_ page: Int, _ total: Int) -> String {
@@ -570,16 +671,16 @@ struct L {
     }
     func eggDescription(_ tier: Rarity?) -> String {
         guard let tier, tier != .common else {
-            return t("지금 포켓몬을 놓아주고 새 알로 다시 시작해요.",
-                     "Send off your current Pokémon and start fresh with a new egg.",
-                     "いまのポケモンを手放して新しいタマゴからやり直します。",
-                     "Suelta a tu Pokémon actual y empieza de nuevo con un huevo nuevo.")
+            return t("지금 포켓몬은 박스로 보내고 새 알로 다시 시작해요. 언제든 다시 꺼낼 수 있어요.",
+                     "Your current Pokémon moves to the Box and a new egg starts. You can take it back out any time.",
+                     "いまのポケモンはボックスへ移り、新しいタマゴが始まります。いつでも戻せます。",
+                     "Tu Pokémon actual pasa a la Caja y empieza un huevo nuevo. Puedes sacarlo cuando quieras.")
         }
         let r = rarityLabel(tier)
-        return t("지금 포켓몬을 놓아주고 \(r) 이상이 확정으로 나오는 알을 받아요.",
-                 "Send off your current Pokémon for an egg guaranteed to hatch \(r) or better.",
-                 "いまのポケモンを手放して \(r) 以上が確定で孵るタマゴをもらいます。",
-                 "Suelta a tu Pokémon actual y consigue un huevo garantizado de \(r) o superior.")
+        return t("지금 포켓몬은 박스로 보내고 \(r) 이상이 확정으로 나오는 알을 받아요.",
+                 "Your current Pokémon moves to the Box and you get an egg guaranteed to hatch \(r) or better.",
+                 "いまのポケモンはボックスへ移り、\(r) 以上が確定で孵るタマゴをもらいます。",
+                 "Tu Pokémon actual pasa a la Caja y consigues un huevo garantizado de \(r) o superior.")
     }
     /// 인큐베이션 중 표시하는 보증 배지 — 어떤 알을 품고 있는지 한 줄로.
     func eggGuaranteeHint(_ tier: Rarity) -> String {
@@ -587,10 +688,10 @@ struct L {
         return t("\(r) 이상 확정", "\(r) or better", "\(r) 以上確定", "\(r) o superior garantizado")
     }
     func eggConfirm(_ monName: String, _ eggName: String) -> String {
-        t("\(monName)을(를) 놓아주고 \(eggName)(으)로 바꿀까요?",
-          "Send off \(monName) for the \(eggName)?",
-          "\(monName) を手放して \(eggName) にしますか？",
-          "¿Soltar a \(monName) y cambiarlo por \(eggName)?")
+        t("\(monName)을(를) 박스로 보내고 \(eggName)(으)로 바꿀까요?",
+          "Move \(monName) to the Box and start the \(eggName)?",
+          "\(monName) をボックスに入れて \(eggName) にしますか？",
+          "¿Mover a \(monName) a la Caja y empezar el \(eggName)?")
     }
     var freshEggShinyWarning: String { t("⚠️ 이로치 포켓몬이에요! 정말 놓아줄까요?", "⚠️ This one is shiny! Really send it off?", "⚠️ 色違いです！本当に手放しますか？", "⚠️ ¡Este es variocolor! ¿Seguro que quieres soltarlo?") }
     var freshEggDiscardShiny: String { t("이로치 놓아주기", "Send shiny off", "手放す", "Soltar variocolor") }

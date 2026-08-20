@@ -19,6 +19,17 @@ enum FloatingPetCopy {
         return l.floatingPetHoverWithLimit(usage, mode == .remaining ? l.percentRemaining(percent) : percent)
     }
 
+    /// What the companion says when you click it.
+    ///
+    /// Pure, and **deterministic given `roll`** — the caller supplies the randomness so tests can
+    /// pin a line and so the same click cannot produce two different answers on two frontends.
+    /// Keyed on display state because a sleeping pet cheering you on is worse than saying nothing.
+    static func tapReaction(state: CompanionStateKind, name: String, roll: UInt64, l: L) -> String {
+        let lines = l.petReactions(state: state, name: name)
+        guard !lines.isEmpty else { return l.petReactionFallback(name) }
+        return lines[Int(roll % UInt64(lines.count))]
+    }
+
     /// Title and body for a limit-alert speech bubble.
     static func bubble(_ alert: UsageStore.LimitAlert, l: L) -> (title: String, body: String) {
         (alert.isCritical ? l.notifCritical : l.notifWarning,

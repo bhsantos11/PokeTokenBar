@@ -29,23 +29,30 @@ final class FreshEggTests: XCTestCase {
 
     func testPriceIsOneBillion() { XCTAssertEqual(FreshEgg.price, 1_000_000_000) }
 
-    /// [핵심] 리롤 = 폐기: active 사라지고 새 알(eggUsage 0). **도감·확률(collectedFinals) 불변** = "뽑은 적 없던 것처럼".
-    func testBuyFreshEggDiscardsWithoutDexOrProbabilityImpact() async {
+    /// [핵심] 리롤 = **박스로 이동**(2026-08-19 이전엔 폐기). active 는 비고 새 알이 시작되지만
+    /// 개체는 `state.boxed` 에 살아 있다. **도감·확률(collectedFinals) 는 여전히 불변** — 졸업이
+    /// 아니라 보관이라, 영구 기록에 들어가지도 부화 가중치를 바꾸지도 않는다.
+    func testBuyFreshEggBoxesActiveWithoutDexOrProbabilityImpact() async {
         let s = store(used: 5_000_000_000, spent: 0)
         let persistedDexBefore = s.state.dex
         let collectedBefore = s.state.collectedFinals
         XCTAssertEqual(s.dexEntries.count, persistedDexBefore.count + 1,
                        "현재 포켓몬은 졸업 전에도 도감 화면에 표시")
         XCTAssertTrue(s.hasActive)
+        let activeBefore = s.state.active
         XCTAssertTrue(s.buyFreshEgg())
-        XCTAssertNil(s.state.active, "현재 포켓몬 폐기")
+        XCTAssertNil(s.state.active, "활성 자리는 비어야 한다(알로 교체)")
+        XCTAssertEqual(s.state.boxed.count, 1, "폐기가 아니라 박스로 들어가야 한다")
+        XCTAssertEqual(s.state.boxed.first?.baseID, activeBefore?.baseID)
+        XCTAssertEqual(s.state.boxed.first?.usedAtStage, activeBefore?.usedAtStage,
+                       "성장이 보존돼야 한다 — 잃으면 박스는 느린 폐기일 뿐이다")
         XCTAssertTrue(s.isEgg)
         XCTAssertEqual(s.state.eggUsage, 0, "새 알은 처음부터 인큐베이션")
         XCTAssertNil(s.state.pendingHatchID)
         XCTAssertEqual(s.state.dex.map(\.id), persistedDexBefore.map(\.id),
                        "영구 도감 불변 — 졸업이 아니라 폐기")
-        XCTAssertEqual(s.dexEntries.count, persistedDexBefore.count,
-                       "폐기한 현재 포켓몬의 화면용 엔트리는 제거")
+        XCTAssertEqual(s.dexEntries.count, persistedDexBefore.count + 1,
+                       "박스에 든 개체는 화면용 엔트리로 계속 보여야 한다 — 사라지면 잃은 것과 구별이 안 된다")
         XCTAssertEqual(s.state.collectedFinals, collectedBefore, "확률 가중(collectedFinals) 불변")
         XCTAssertEqual(s.state.spentTokens, FreshEgg.price, "지갑에서 1B 차감")
         XCTAssertEqual(s.availableTokens, 5_000_000_000 - FreshEgg.price)

@@ -324,6 +324,27 @@ enum PokemonNature: String, Codable, Sendable, CaseIterable {
     case modest, mild, quiet, bashful, rash
     case calm, gentle, sassy, careful, quirky
 
+    /// 성장 속도 배율 — **성격이 실제로 하는 일**(2026-08-19).
+    ///
+    /// 그전까지 성격은 부화 때 정해지고 도감에 표시될 뿐 아무 효과가 없었고, 희귀도는 졸업까지의
+    /// 길이만 바꿨다. 그래서 같은 종의 두 개체는 완전히 교환 가능했다 — 개체를 모으는 게임에서
+    /// 개체가 서로 다르지 않았던 셈이다.
+    ///
+    /// 매핑은 **본가의 스피드 보정을 그대로 쓴다.** 새 규칙을 지어내지 않아야 팬이 표를 안 보고도
+    /// 납득한다: 스피드가 오르는 성격(성급/겁쟁이/명랑/천진)은 빨리 크고, 내려가는 성격
+    /// (용감/무사태평/냉정/촐랑)은 느리게 큰다. 스피드를 안 건드리는 17종은 정확히 1.0 이다.
+    /// → 대부분의 개체는 "보통"이고, 가끔 나오는 빠른/느린 개체가 그래서 의미를 갖는다.
+    ///
+    /// 폭은 ±10%. 희귀(졸업 3B) 기준 300M 차이 — 며칠치 작업이라 체감되면서도, 나쁜 성격이
+    /// "이번 주를 날렸다"로 느껴지지 않는 선이다. 가장 느린 성격도 3B / 0.9 = 3.33B 로 여전히 도달 가능하다.
+    var growthMultiplier: Double {
+        switch self {
+        case .timid, .hasty, .jolly, .naive: return 1.1     // 본가 +스피드
+        case .brave, .relaxed, .quiet, .sassy: return 0.9   // 본가 −스피드
+        default: return 1.0
+        }
+    }
+
     /// 본가 공식 번역 명칭 (ko/en/ja/es).
     func name(_ lang: AppLanguage) -> String {
         let names: (String, String, String, String)
@@ -379,6 +400,10 @@ struct MonState: Codable, Sendable {
     var totalForms: Int
     var isShiny = false             // 부화 시 확정, 진화해도 유지
     var nature: PokemonNature?      // 부화 시 확정 (구버전 저장은 nil)
+    /// 사용자가 붙인 이름. nil = 종 이름을 쓴다.
+    /// 진화해도 유지되고, 졸업할 때 `DexEntry` 로 넘어가 도감에도 남는다 — 안 넘기면 애칭이 졸업하는
+    /// 순간 사라져서, 이름을 붙일 이유가 가장 큰 개체(끝까지 키운 개체)에서만 기능이 없어진다.
+    var nickname: String?
     // 메타몽 위장 — nil=일반. 값=정체 메타몽, 이 종으로 위장 중(위장 구간엔 baseID 와 동일, 리빌 후에도 원 위장체 보존).
     var dittoDisguise: Int?
     var dittoRevealed = false       // 위장 → 리빌(정체 공개) 전환 여부
@@ -387,7 +412,7 @@ struct MonState: Codable, Sendable {
 
     init(baseID: Int, pathIDs: [Int], plannedPathIDs: [Int]? = nil, stageIndex: Int, usedAtStage: Int,
          rarity: Rarity, totalForms: Int, isShiny: Bool = false, nature: PokemonNature? = nil,
-         dittoDisguise: Int? = nil, dittoRevealed: Bool = false) {
+         dittoDisguise: Int? = nil, dittoRevealed: Bool = false, nickname: String? = nil) {
         self.baseID = baseID
         self.pathIDs = pathIDs
         if let plannedPathIDs, !plannedPathIDs.isEmpty {
@@ -403,6 +428,7 @@ struct MonState: Codable, Sendable {
         self.nature = nature
         self.dittoDisguise = dittoDisguise
         self.dittoRevealed = dittoRevealed
+        self.nickname = nickname
     }
 
     // 하위호환 디코딩: shiny/nature 는 구버전 저장에 없음 → 기본값.
@@ -428,12 +454,27 @@ struct MonState: Codable, Sendable {
         nature = try c.decodeIfPresent(PokemonNature.self, forKey: .nature)
         dittoDisguise = try c.decodeIfPresent(Int.self, forKey: .dittoDisguise)
         dittoRevealed = try c.decodeIfPresent(Bool.self, forKey: .dittoRevealed) ?? false
+        // 손수 쓴 디코더 — 이 줄이 없으면 애칭은 저장은 되고 다음 기동에 사라진다(박스와 같은 함정).
+        nickname = try c.decodeIfPresent(String.self, forKey: .nickname)
     }
+}
+
+/// 옆으로 치워 둔 알 — 인큐베이션 진행·등급 보증·프리롤한 종을 한 묶음으로 보관한다.
+///
+/// `CompanionState` 의 `eggUsage`/`eggTier`/`pendingHatchID` 와 같은 뜻이고, 담기는 곳만 다르다.
+/// 필드를 그대로 둔 채 플래그 하나로 표현하지 않는 이유: 그러면 "알이 있는데 보류 중"과 "알이 없는데
+/// 값이 남아 있다"가 같은 모양이 되어, 유출 가드가 무엇을 지우면 되는지 알 수 없게 된다.
+struct HeldEgg: Codable, Sendable, Equatable {
+    var usage: Int
+    var tier: Rarity?
+    var pendingHatchID: Int?
 }
 
 /// 도감 항목 — 라인 전체(초기→최종) 순서 보존.
 struct DexEntry: Codable, Sendable, Identifiable {
     var id = UUID().uuidString
+    /// 졸업 시점의 애칭(있었다면). 도감/포획 로그가 종 이름 대신 이 이름을 보여 준다.
+    var nickname: String?
     var baseID: Int
     var finalID: Int
     var chainOrder: [Int]   // 초기→최종 종 id
@@ -446,11 +487,12 @@ struct DexEntry: Codable, Sendable, Identifiable {
     /// 없어(nil) 뷰가 line fetch 로 조회 후 백필한다.
     var names: [Int: [String: String]]?
 
-    init(id: String = UUID().uuidString,
+    init(id: String = UUID().uuidString, nickname: String? = nil,
          baseID: Int, finalID: Int, chainOrder: [Int], rarity: Rarity,
          caughtAt: Date?, isShiny: Bool = false, nature: PokemonNature? = nil,
          names: [Int: [String: String]]? = nil) {
         self.id = id
+        self.nickname = nickname
         self.baseID = baseID
         self.finalID = finalID
         self.chainOrder = chainOrder
@@ -465,6 +507,8 @@ struct DexEntry: Codable, Sendable, Identifiable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        // 손수 쓴 디코더가 둘(여기와 memberwise init) — 새 필드는 **양쪽 다** 손봐야 왕복이 산다.
+        nickname = try c.decodeIfPresent(String.self, forKey: .nickname)
         baseID = try c.decode(Int.self, forKey: .baseID)
         finalID = try c.decode(Int.self, forKey: .finalID)
         chainOrder = try c.decode([Int].self, forKey: .chainOrder)
@@ -523,6 +567,25 @@ struct CompanionState: Codable, Sendable {
     var lastDate = ""
     // 현재 포켓몬(없으면 알)
     var active: MonState?
+    /// 박스(PC) — 지금 데리고 다니지 않는 개체들. 용량 무제한.
+    ///
+    /// 존재 이유는 수납이 아니라 **손실 제거**다. 알 구매는 활성 개체를 영구 폐기했고(도감에도 안 남아
+    /// 되돌릴 수단이 없다), 2026-08-19 에 확인 없는 클릭 한 번으로 10시간 키운 개체가 사라졌다.
+    /// 여기 들어온 개체는 성장(`usedAtStage`)을 그대로 유지한 채 언제든 다시 꺼낼 수 있다.
+    ///
+    /// 구버전 세이브는 이 키가 없다 → 기본값 `[]` 로 조용히 마이그레이션된다(디코드 실패 아님).
+    var boxed: [MonState] = []
+    /// **보류된 알** — 박스에서 개체를 꺼내면서 옆으로 치워 둔 알.
+    ///
+    /// 알은 `active == nil` 일 때만 인큐베이션된다(`CompanionStore.update`). 그래서 박스에서 개체를
+    /// 꺼내는 순간 "품고 있던 알"이 갈 곳이 없어진다 — 그냥 두면 산 보증(`eggTier`)과 프리롤이
+    /// 활성 개체와 공존하게 되고, `SaveTransfer.sanitized` 가 그것을 손편집 유출로 보고 떨궈서
+    /// **1B~4B 주고 산 보증이 조용히 사라진다.**
+    ///
+    /// 그래서 알을 파괴하지도, 규칙을 느슨하게 하지도 않고 **명시적으로** 옆에 둔다. 보증이 정당한
+    /// 경우("품은 알" 또는 "보류된 알"에 붙어 있을 때)와 유출을 데이터로 구분할 수 있게 되어
+    /// sanitized 의 가드는 그대로 살아 있다.
+    var heldEgg: HeldEgg?
     // 도감
     var dex: [DexEntry] = []
     // 소유한 (base,final) 쌍 — 분기 다양성용
@@ -563,6 +626,11 @@ struct CompanionState: Codable, Sendable {
         active             = c.lenientOptional(MonState.self, forKey: .active)
         // 도감은 항목별 격리 — 손상 항목 하나가 도감 전체를 날리지 않게.
         dex                = c.lenient([Lossy<DexEntry>].self, forKey: .dex, default: []).compactMap(\.value)
+        // 박스도 같은 격리를 쓴다. **이 줄을 빼면 박스는 매 기동마다 조용히 비워진다** — `CodingKeys` 는
+        // 합성이라 인코딩은 되는데 이 손수 쓴 디코더가 안 읽으면 왕복에서 사라지고, 저장은 "성공"한다.
+        // 개체를 잃지 않으려고 만든 기능이 개체를 잃는 가장 그럴듯한 방식이라 회귀 테스트로 잠갔다.
+        boxed              = c.lenient([Lossy<MonState>].self, forKey: .boxed, default: []).compactMap(\.value)
+        heldEgg            = c.lenientOptional(HeldEgg.self, forKey: .heldEgg)
         collectedFinals    = c.lenient(Set<String>.self, forKey: .collectedFinals, default: [])
         language           = c.lenient(AppLanguage.self, forKey: .language, default: .systemDefault)
         inventory          = c.lenient([String: Int].self, forKey: .inventory, default: [:])

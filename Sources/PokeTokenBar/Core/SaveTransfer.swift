@@ -9,7 +9,13 @@ import Foundation
 /// 봉투의 `format`/`schema` 는 관대 디코딩 대상이 아니라(기본값 없음) 이 오인을 먼저 차단한다.
 struct SaveEnvelope: Codable, Sendable {
     static let formatID = "poketokenbar.save"
-    static let schemaVersion = 1
+    /// 2 = 박스(`boxed`)·보류된 알(`heldEgg`)이 상태에 들어간 버전.
+    ///
+    /// 올리지 않으면 **구버전 앱이 이 세이브를 조용히 납작하게 만든다**: schema 1 을 받아들이고
+    /// 모르는 키를 무시한 뒤, 다음 저장에서 박스와 보류된 알을 통째로 날린다(에러 없이). 버전을 올리면
+    /// 구버전은 `newerSchema` 로 거절한다 — "못 읽는다"가 "읽고 지웠다"보다 낫다.
+    /// 새 버전이 v1 세이브를 읽는 방향은 그대로다(`header.schema <= schemaVersion`, 없는 키는 기본값).
+    static let schemaVersion = 2
 
     var format: String
     var schema: Int
@@ -152,21 +158,48 @@ enum SaveTransfer {
         // 조합으로 둘 다 들어오면 그 보증이 다음 알로 새어 영구 프리미엄이 되므로 여기서 떨군다.
         // 그 보증으로 미리 뽑아둔 종(pendingHatchID)도 함께 버린다 — 보증만 지우면 졸업 후 받는 **무료**
         // 알이 그 pre-roll 로 부화해, 아무도 사지 않은 프리미엄 결과가 나온다.
+        // 활성 개체가 있으면 **최상위** 보증·프리롤은 언제나 유출이다. 박스가 생겨도 이건 안 바뀐다:
+        // 정당한 보류분은 `heldEgg` **안에** 들어가고 `withdraw` 가 최상위를 비우기 때문이다. 여기서
+        // heldEgg 존재를 예외로 두면 손편집·구버전 조합의 stale 한 최상위 값이 살아남고, `graduate()`
+        // 가 주는 **무료** 알이 그 보증을 물려받는다(graduate 는 최상위가 nil 임을 전제한다).
         if s.active != nil { s.eggTier = nil; s.pendingHatchID = nil }
+        // 인큐베이션 중인 알과 보류된 알이 **동시에** 있을 수는 없다(둘 다 "지금 품은 알"을 뜻한다).
+        // 손편집으로 겹치면 품고 있는 쪽을 남긴다 — 보류분을 살리면 화면에 안 보이는 알이 계속 남는다.
+        if s.active == nil { s.heldEgg = nil }
+        s.heldEgg = s.heldEgg.map { held in
+            var h = held
+            h.usage = clampToken(h.usage)
+            if h.tier?.captureRateCeiling == nil { h.tier = nil }
+            return h
+        }
         // 만족시킬 수 없는 보증은 알을 영구히 못 깨게 만든다 — 전설은 capture_rate 로 표현할 수 없어
         // (captureRateCeiling == nil) 두 롤 경로 모두 후보를 0개로 만들고, 부화가 없으니 보증도 소비되지
         // 않으며, 새 알 구매는 `hasActive` 게이트에 막혀 빠져나갈 수단이 없다. 디코드는 *성공*하므로
         // load() 의 .corrupt 복구도 안 걸려 파일을 손으로 지우기 전엔 앱을 못 쓴다.
         // 관대 디코딩은 모르는 rawValue 만 걸러낼 뿐 **아는데 만족 불가능한 값**은 그대로 통과시킨다.
         if s.eggTier?.captureRateCeiling == nil { s.eggTier = nil }
-        if var active = s.active {
-            active.usedAtStage = clampToken(active.usedAtStage)
-            // totalForms 는 `kk * (kk + 1)` 형태로 쓰여(PokemonBalance.phaseThreshold) 큰 값이 그 자체로 트랩이다.
-            active.totalForms = min(max(1, active.totalForms), 12)
-            active.stageIndex = min(max(0, active.stageIndex), max(0, active.pathIDs.count - 1))
-            s.active = active
-        }
+        // 개체 클램프는 **활성과 박스 양쪽에** 같은 함수로 건다. 박스는 활성이 되는 대기열이라
+        // (`withdraw`), 여기서 빠뜨리면 극단값이 박스에 앉아 있다가 꺼내는 순간 산술 트랩으로 죽는다
+        // — 그때는 이미 저장된 값이라 재기동해도 같은 파일을 읽어 다시 죽는다.
+        s.active = s.active.map(sanitizedMon)
+        s.boxed = s.boxed.map(sanitizedMon)
         return s
+    }
+
+    /// 개체 하나의 값 범위 정규화. 활성/박스가 갈라지지 않도록 한 곳에만 둔다.
+    private static func sanitizedMon(_ mon: MonState) -> MonState {
+        var m = mon
+        // 애칭은 **외부에서 오는 문자열**이다(손편집·다른 기기 세이브). 길이를 안 자르면 임의 길이
+        // 문자열이 400pt 패널의 카드를 통째로 늘려 화면을 못 쓰게 만든다. 자르는 기준은 문자 수 —
+        // 바이트로 자르면 한글·이모지가 반토막 난다. 앱이 직접 넣을 때와 같은 상한을 쓴다.
+        m.nickname = m.nickname
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .flatMap { $0.isEmpty ? nil : String($0.prefix(CompanionStore.nicknameMaxLength)) }
+        m.usedAtStage = min(max(0, m.usedAtStage), maxTokenValue)
+        // totalForms 는 `kk * (kk + 1)` 형태로 쓰여(PokemonBalance.phaseThreshold) 큰 값이 그 자체로 트랩이다.
+        m.totalForms = min(max(1, m.totalForms), 12)
+        m.stageIndex = min(max(0, m.stageIndex), max(0, m.pathIDs.count - 1))
+        return m
     }
 
     /// 다른 기기에서 온 상태를 **이 기기 기준으로 재정렬**한다.

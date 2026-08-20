@@ -223,7 +223,8 @@ final class App {
             monthTotal: store.monthTotalTokens,
             burnTier: store.burnTier,
             limitWarning: store.isLimitWarning,
-            hasUsageData: store.hasUsageData)
+            hasUsageData: store.hasUsageData,
+            circadian: store.circadianPhase)
     }
 
     /// Re-apply every label after a language change. The tray menu is built once at startup, so

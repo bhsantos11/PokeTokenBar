@@ -24,6 +24,17 @@ enum RelativeTime {
         return minutes == 0 ? "\(hours)h" : "\(hours)h \(minutes)m"
     }
 
+    /// Compact time **since** a moment: `2h 13m`, `45m`, `<1m`. The mirror of `remaining`, for
+    /// "this number is from a while ago" labels. Returns nil for a moment in the future, so a
+    /// clock adjustment shows nothing rather than a negative age.
+    ///
+    /// Formatting is delegated to `remaining` by flipping the interval — two copies of the
+    /// hours/minutes/days rounding would drift apart the first time either is tweaked.
+    static func elapsed(since moment: Date, now: Date = Date()) -> String? {
+        guard now > moment else { return nil }
+        return remaining(until: now.addingTimeInterval(now.timeIntervalSince(moment)), now: now)
+    }
+
     /// Clock time for the burn-rate forecast ("limit hit at 14:32"), in the app's language.
     static func clockTime(_ date: Date, locale: Locale) -> String {
         let formatter = DateFormatter()

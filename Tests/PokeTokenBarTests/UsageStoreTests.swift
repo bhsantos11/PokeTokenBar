@@ -194,6 +194,43 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(calls, 2, "겹친 refresh 는 완료 후 1회 재실행돼야 한다(드롭 금지)")
     }
 
+    // MARK: 한도 실패 사유 보존 (회귀)
+
+    /// [회귀] 429 로 한도를 못 받으면 **사유가 남아야 한다.** 로그에만 쓰면 화면에서는 "카드가 없다"와
+    /// "카드를 못 그린다"가 구별되지 않고, 재시작이 백오프 창에 겹칠 때 기능이 사라진 것처럼 보인다
+    /// (2026-08-19 리포트). `limits` 가 nil 인 채로 사유만 남는 조합이 트리거 브랜치다.
+    func testRateLimitedPollRetainsAReasonToShow() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let seq = SequenceClaudeLimits(errors: [LimitsError.rateLimited(retryAfter: nil)],
+                                       success: claudeLimits(fiveHourUtil: 24))
+        let store = UsageStore(providers: [claude], claudeLimitsProvider: seq,
+                               codexLimitsProvider: FakeCodexLimits(status: nil),
+                               autoRefresh: false, defaults: testDefaults)
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertNil(store.limits, "429 였으니 값은 없어야 한다")
+        XCTAssertEqual(store.limitsErrorText, L(store.localizationLanguage).limitRefreshRateLimited,
+                       "값이 없으면 최소한 '왜 없는지'는 남아야 한다")
+    }
+
+    /// 성공하면 사유는 지워진다 — 남으면 정상 복구 뒤에도 429 안내가 화면에 붙어 있게 된다.
+    /// **위 테스트와 반대 브랜치**: 실패만 검증하면 사유를 영영 안 지워도 통과한다.
+    func testSuccessfulPollClearsTheRetainedReason() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let seq = SequenceClaudeLimits(errors: [LimitsError.rateLimited(retryAfter: nil)],
+                                       success: claudeLimits(fiveHourUtil: 24))
+        let store = UsageStore(providers: [claude], claudeLimitsProvider: seq,
+                               codexLimitsProvider: FakeCodexLimits(status: nil),
+                               autoRefresh: false, defaults: testDefaults)
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertNotNil(store.limitsErrorText)
+        store.resetLimitsBackoff()   // 백오프를 건너뛰고 다음 폴이 실제로 조회하게 한다
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertNotNil(store.limits, "두 번째 조회는 성공해야 한다")
+        XCTAssertNil(store.limitsErrorText, "복구 후에도 429 안내가 남으면 안 된다")
+    }
+
     // MARK: Keychain 프롬프트 경로 분리 (회귀)
 
     /// 회귀 가드: 자동 폴링은 프롬프트 없는 경로(allowKeychainPrompt=false)로만 한도를 조회하고,

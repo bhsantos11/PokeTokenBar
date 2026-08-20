@@ -36,6 +36,76 @@ final class CompanionDisplayStateTests: XCTestCase {
         XCTAssertEqual(s.displayState, .egg)
     }
 
+    // MARK: 하루 리듬 (G2) — 로컬 블록 위치가 표시 상태에 미치는 영향
+
+    /// [핵심] **한도 경고 없이도** `.tired` 에 도달해야 한다.
+    ///
+    /// `isLimitWarning` 은 한도 API 만 읽는데 그 엔드포인트는 429 로 자주 죽는다 → 그동안 `.tired` 는
+    /// 도달 불가능한 죽은 상태였다. 로컬 블록 후반이면 지치는 것이 그 구멍을 메운다.
+    /// 트리거 브랜치는 **limitWarning=false + winding** 조합이다(둘 다 참인 케이스만 보면 못 잡는다).
+    func testWindingBlockMakesTheCompanionTiredWithoutAnyLimitWarning() async {
+        let (s, clock) = await hatchedStore()
+        clock.now = dNow.addingTimeInterval(10)   // 부화 연출(.levelUp) 창 만료
+        s.update(todayTokensByProvider: ["test": 1_000], todayDate: "d", monthTotal: 0,
+                 burnTier: .normal, limitWarning: false, hasUsageData: true, circadian: .winding)
+        XCTAssertEqual(s.displayState, .tired, "작업 구간 후반이면 한도와 무관하게 지쳐야 한다")
+    }
+
+    /// 5시간 넘게 조용하면 잔다 — 오늘 토큰을 썼더라도. 날짜 기준만 쓰면 아침에 쓴 사용량 때문에
+    /// 저녁 내내 자리를 비워도 "일하는 중"으로 남는다.
+    func testAsleepPhaseSleepsEvenWithUsageEarlierToday() async {
+        let (s, clock) = await hatchedStore()
+        clock.now = dNow.addingTimeInterval(10)
+        s.update(todayTokensByProvider: ["test": 1_000], todayDate: "d", monthTotal: 0,
+                 burnTier: .idle, limitWarning: false, hasUsageData: true, circadian: .asleep)
+        XCTAssertEqual(s.displayState, .sleep)
+    }
+
+    /// [회귀 — Codex 리뷰] **자정을 건너는 작업 구간에서 자면 안 된다.**
+    ///
+    /// 오늘 토큰이 아직 0이어도(00:05) 블록이 살아 있으면 사람은 일하는 중이다. 날짜 기준을 함께
+    /// 두면 리듬이 없애려던 바로 그 달력 경계 문제가 그대로 남는다.
+    /// 트리거 브랜치: **today == 0 + 활성 블록**(둘 중 하나만 보면 못 잡는다).
+    func testMidnightWithALiveBlockDoesNotSleep() async {
+        let (s, clock) = await hatchedStore()
+        clock.now = dNow.addingTimeInterval(10)
+        s.update(todayTokensByProvider: ["test": 0], todayDate: "d", monthTotal: 0,
+                 burnTier: .normal, limitWarning: false, hasUsageData: true, circadian: .steady)
+        XCTAssertEqual(s.displayState, .working, "블록이 살아 있으면 자정 직후여도 일하는 중이다")
+    }
+
+    /// 리듬을 안 넘기는 호출부(nil = macOS)는 종전 날짜 기준 그대로여야 한다.
+    func testCallersWithoutCircadianKeepTheCalendarRule() async {
+        let (s, clock) = await hatchedStore()
+        clock.now = dNow.addingTimeInterval(10)
+        s.update(todayTokensByProvider: ["test": 0], todayDate: "d", monthTotal: 0,
+                 burnTier: .normal, limitWarning: false, hasUsageData: true)
+        XCTAssertEqual(s.displayState, .sleep, "리듬 없는 호출부는 today == 0 이면 종전대로 잔다")
+    }
+
+    /// 중립값(.steady)에서는 기존 동작이 그대로여야 한다 — 기본 인자를 쓰는 호출부(macOS)가
+    /// 리듬 기능만 빠진 채 종전대로 도는지 확인한다.
+    func testSteadyPhaseLeavesTheExistingBehaviourUnchanged() async {
+        let (s, clock) = await hatchedStore()
+        clock.now = dNow.addingTimeInterval(10)
+        s.update(todayTokensByProvider: ["test": 1_000], todayDate: "d", monthTotal: 0,
+                 burnTier: .normal, limitWarning: false, hasUsageData: true, circadian: .steady)
+        XCTAssertEqual(s.displayState, .working)
+        // 인자를 아예 안 넘긴 호출(nil)도 오늘 사용량이 있으면 같은 결과여야 한다.
+        s.update(todayTokensByProvider: ["test": 2_000], todayDate: "d", monthTotal: 0,
+                 burnTier: .normal, limitWarning: false, hasUsageData: true)
+        XCTAssertEqual(s.displayState, .working)
+    }
+
+    /// 한도 경고는 여전히 우선한다 — 블록 초반이어도 한도가 위험하면 지친 상태다.
+    func testLimitWarningStillWinsOverAFreshBlock() async {
+        let (s, clock) = await hatchedStore()
+        clock.now = dNow.addingTimeInterval(10)
+        s.update(todayTokensByProvider: ["test": 1_000], todayDate: "d", monthTotal: 0,
+                 burnTier: .normal, limitWarning: true, hasUsageData: true, circadian: .fresh)
+        XCTAssertEqual(s.displayState, .tired)
+    }
+
     func testLevelUpDuringEventWindow() async {
         let (s, _) = await hatchedStore()
         // 이벤트 윈도우가 살아있는 동안(시계 미전진) → levelUp 유지

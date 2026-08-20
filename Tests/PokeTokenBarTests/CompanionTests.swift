@@ -1186,20 +1186,25 @@ final class DexSortingTests: XCTestCase {
                                clock: { fixedNow.addingTimeInterval(TimeInterval(tick)) },
                                fileURL: url, rng: SeededRNG(seed: 3))
 
+        // 임계를 **넉넉히 넘겨** 졸업시킨다. 정확히 graduationTotal 만 넣으면 성격의 성장 배율(G3,
+        // 느린 성격 0.9배)에 따라 부화 롤에 뽑힌 성격이 무엇이냐로 졸업 여부가 갈려, 정렬을 보는
+        // 이 테스트가 균형 수치에 묶인다. 여기서 검증할 것은 순서뿐이다.
+        func graduateNow(_ rarity: Rarity) { s.applyUsage(PokemonBalance.graduationTotal(rarity) * 2) }
+
         // legendary (가장 먼저 — 희귀도 우선 정렬이면 맨 앞으로 올라온다)
         provider.line = makeLine(base: 200, tree: node(200), rarity: .legendary)
         tick = 1; await s.hatch(baseID: 200)
-        s.applyUsage(PokemonBalance.graduationTotal(.legendary))
+        graduateNow(.legendary)
 
         // common #1
         provider.line = makeLine(base: 100, tree: node(100), rarity: .common)
         tick = 2; await s.hatch(baseID: 100)
-        s.applyUsage(PokemonBalance.graduationTotal(.common))
+        graduateNow(.common)
 
         // common #2 (가장 나중)
         provider.line = makeLine(base: 101, tree: node(101), rarity: .common)
         tick = 3; await s.hatch(baseID: 101)
-        s.applyUsage(PokemonBalance.graduationTotal(.common))
+        graduateNow(.common)
 
         XCTAssertEqual(s.dexEntries.count, 3)
         let sorted = s.dexEntriesSorted

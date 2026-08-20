@@ -20,6 +20,13 @@ final class UsageStore {
     /// Claude 한도 조회가 401/403(세션 만료)로 실패한 상태 — UI 에서 명확한 안내+재시도 노출용.
     /// 성공 시 해제. 자동 폴링은 무프롬프트라 만료 토큰을 스스로 못 고치므로 사용자 액션 유도가 필요.
     private(set) var limitsAuthExpired = false
+
+    /// 자동 폴링의 마지막 한도 조회 실패 사유(사용자 문구). 성공하면 nil.
+    ///
+    /// 로그에만 남기면 **화면에서는 "조용히 사라진 섹션"과 구별할 수단이 없다.** 재시작이 429 백오프
+    /// 창과 겹치면 메모리에 캐시가 없어 카드 자체가 안 그려지고, 사용자에겐 기능이 없어진 것으로 보인다
+    /// (2026-08-19 리포트: "예전엔 한도가 보였는데 지금은 안 보인다" — 실제로는 429 백오프 중이었다).
+    private(set) var limitsErrorText: String?
     /// providerID → 프로바이더 상태 페이지 인시던트 지표(표시 전용). 조회 실패 시 이전 값 유지.
     private(set) var statuses: [String: ProviderStatus] = [:]
     private(set) var lastUpdated: Date?
@@ -284,6 +291,18 @@ final class UsageStore {
     /// 메뉴바 경고 상태 — 임계 초과 또는 리셋 전 한도 도달 예측.
     /// Claude 는 5h 만이 아니라 팝오버가 표시하는 모든 한도 창(주간·모델별 주간 포함)의 위험선을
     /// 검사한다 — 5h 는 여유롭지만 주간이 100% 인 경우에도 경고/‘지침’ 상태가 뜨도록(누락 수정).
+    /// 동행의 하루 리듬 — **로컬 로그의 활성 블록**에서만 나온다(한도 API 무관, 429 에도 계속 산다).
+    ///
+    /// 프로바이더가 여럿이면 **가장 최근에 시작한 블록**을 쓴다. 사람은 한 명이고 리듬도 하나이므로,
+    /// 지금 쓰고 있는 도구가 그 사람의 현재 작업 구간을 가장 잘 대변한다. 합치거나 평균 내면
+    /// 아침에 잠깐 쓴 다른 도구 때문에 저녁 내내 "일하는 중"으로 굳는다.
+    var circadianPhase: CircadianPhase {
+        let latest = snapshots.compactMap(\.activeBlock)
+            .compactMap { block in block.startDate.map { (block, $0) } }
+            .max { $0.1 < $1.1 }?.0
+        return Circadian.phase(block: latest, now: Date())
+    }
+
     var isLimitWarning: Bool {
         for u in [limits?.fiveHour?.utilization, limits?.sevenDay?.utilization,
                   limits?.sevenDayOpus?.utilization, limits?.sevenDaySonnet?.utilization] {
@@ -372,7 +391,24 @@ final class UsageStore {
     }
 
     /// 한도 데이터가 최소 1개 프로바이더 로드됐는가 — 사탕 첫 실행 시드 게이트(미로딩 중 시드 방지).
-    var limitsReady: Bool { limits != nil || codexLimits != nil }
+    /// 사탕 지급 판정을 돌려도 되는가.
+    ///
+    /// **되살린 캐시는 "준비됨"이 아니다.** 지급은 엣지 트리거라, 캐시된 100% 미만 값이 이미 지급한
+    /// 창을 재무장하면 다음 실제 조회에서 같은 창이 두 번째로 지급된다. 화면에는 과거 값을 보여
+    /// 주면서도 지급 판정은 실제 조회를 기다리게 하려면 두 개념을 갈라 놓아야 한다.
+    var limitsReady: Bool {
+        Self.limitsReady(hasClaudeLimits: limits != nil, restored: limitsAreRestored,
+                         hasCodexLimits: codexLimits != nil)
+    }
+
+    /// 규칙만 떼어낸 순수 판정 — 인스턴스 상태에 묶여 있으면 테스트가 못 잡는다.
+    /// 되살린 Claude 한도는 준비된 것으로 치지 **않는다**(재무장 → 이중 지급). Codex 한도는 캐시
+    /// 대상이 아니라 항상 실제 조회 결과이므로 그대로 준비됨이다.
+    nonisolated static func limitsReady(hasClaudeLimits: Bool, restored: Bool,
+                                        hasCodexLimits: Bool) -> Bool {
+        (hasClaudeLimits && !restored) || hasCodexLimits
+    }
+
 
     /// burn rate 티어 — companion 표시 상태(idle/working/focus) 판정에 사용.
     /// 전 프로바이더 합산 — Codex/Gemini 전용 사용자도 코딩 리듬이 반영된다.
@@ -441,6 +477,8 @@ final class UsageStore {
 
         // 알림 권한은 기동 즉시 묻지 않는다 — 앱을 이해하기 전 콜드 프롬프트는 거부율이 높고
         // 거부 시 재요청 경로가 없다. 팝오버 첫 오픈(사용자 의도)에 requestNotificationAuthorizationIfNeeded 로 1회 요청.
+        // 첫 refresh 전에 되살린다 — 그 refresh 가 429 로 실패해도 화면엔 지난 값이 남는다.
+        restoreLimitsCache()
         if autoRefresh { Task { await refresh() } }
     }
 
@@ -629,13 +667,18 @@ final class UsageStore {
                 limitsAvailable = true
                 limitsUpdatedAt = Date()
                 limitsAuthExpired = false
+                limitsErrorText = nil
+                limitsAreRestored = false
                 resetLimitsBackoff()
+                persistLimitsCache()
                 AppLog.write("limits refreshed fiveHour=\(limits?.fiveHour?.utilization?.description ?? "nil") sevenDay=\(limits?.sevenDay?.utilization?.description ?? "nil")")
             } catch {
                 // 비공식 endpoint 실패 → 섹션 숨김, 토큰 표시는 무영향
                 if limits == nil { limitsAvailable = false }
                 updateAuthExpired(from: error)
                 applyLimitsBackoffIfRateLimited(error)
+                // 사유를 남긴다 — 카드를 못 그리는 것과 "왜 못 그리는지"는 다른 정보다.
+                limitsErrorText = Self.friendlyLimitError(error, L(localizationLanguage))
                 AppLog.write("limits unavailable: \(error)")
             }
         }
@@ -676,7 +719,11 @@ final class UsageStore {
             limitsUpdatedAt = Date()
             limitsAuthExpired = false
             limitTokenRefreshError = nil
+            limitsAreRestored = false
             resetLimitsBackoff()
+            // 자동 경로와 같이 캐시를 갱신한다 — 빠뜨리면 사용자가 직접 새로고침한 최신 값이 저장되지
+            // 않아, 다음 기동이 더 오래된 스냅샷(또는 아무것도)을 되살린다.
+            persistLimitsCache()
             AppLog.write("limits refreshed by user action fiveHour=\(limits?.fiveHour?.utilization?.description ?? "nil") sevenDay=\(limits?.sevenDay?.utilization?.description ?? "nil")")
             AppLog.write("limits refreshed from keychain by user action")
         } catch {
@@ -698,6 +745,40 @@ final class UsageStore {
 
     // MARK: Claude 한도 429 백오프
 
+    /// 성공한 조회를 디스크에 남긴다. 테스트가 사용자 데이터를 덮어쓰지 않도록 설치본에서만 쓴다
+    /// (`writeParitySnapshot` 과 같은 게이트). 규칙 자체는 `LimitsCache` 에 있고 여기선 호출만 한다.
+    /// 지금 들고 있는 `limits` 가 **디스크에서 되살린 과거 값**인가.
+    ///
+    /// 사탕 지급과 한도 알림은 엣지 트리거다 — "새로 100% 를 넘어선 순간"에만 발화하고, 100% 미만을
+    /// 보면 다음 발화를 위해 재무장한다. 과거 값을 그 파이프라인에 넣으면 두 방향 모두 틀린다:
+    /// 캐시된 높은 값이 기동하자마자 알림을 쏘고, 캐시된 낮은 값이 이미 지급한 창을 재무장해
+    /// 다음 실제 조회에서 **두 번째 지급**이 나간다. 그래서 되살린 값은 화면에만 쓴다.
+    private(set) var limitsAreRestored = false
+
+    private func persistLimitsCache() {
+        guard AppEnv.isProductionInstall, let limits else { return }
+        LimitsCache.save(CachedLimits(fetchedAt: Date(), status: limits,
+                                      subscriptionType: limits.subscriptionType,
+                                      rateLimitTier: limits.rateLimitTier),
+                         to: PlatformPaths.appDirectory())
+    }
+
+    /// 기동 시 마지막으로 성공한 값을 되살린다 — **표시 전용**이다.
+    ///
+    /// `limitsUpdatedAt` 을 캐시의 시각으로 함께 복원하는 것이 핵심이다: 그래야 기존
+    /// `claudeLimitsStale` 이 이 값을 '갱신 지연'으로 표시하고, 화면이 방금 받아온 척하지 않는다.
+    /// 사탕 지급·경고는 엣지 트리거라 과거 값으로 다시 발화하면 중복 지급이 되므로, 여기서는
+    /// `limits`/`limitsUpdatedAt` 만 채우고 판정 계열 상태는 건드리지 않는다.
+    private func restoreLimitsCache() {
+        guard AppEnv.isProductionInstall, limits == nil,
+              let cached = LimitsCache.load(from: PlatformPaths.appDirectory(), now: Date()) else { return }
+        limits = cached.restored
+        limitsUpdatedAt = cached.fetchedAt
+        limitsAvailable = true
+        limitsAreRestored = true
+        AppLog.write("limits restored from cache (fetched \(Int(Date().timeIntervalSince(cached.fetchedAt)))s ago)")
+    }
+
     private var claudeLimitsBackoffUntil: Date?
     private var claudeLimitsBackoffInterval: TimeInterval = 0
 
@@ -710,7 +791,9 @@ final class UsageStore {
         AppLog.write("claude limits rate-limited: backing off \(Int(delay))s")
     }
 
-    private func resetLimitsBackoff() {
+    /// `private` 가 아닌 이유: 429 → 복구 브랜치를 테스트가 밟으려면 백오프를 건너뛸 수 있어야 한다.
+    /// 실패만 검증하는 테스트는 사유를 영영 안 지우는 구현도 통과시킨다.
+    func resetLimitsBackoff() {
         claudeLimitsBackoffUntil = nil
         claudeLimitsBackoffInterval = 0
     }
@@ -859,6 +942,9 @@ final class UsageStore {
     /// Shared limit-alert pipeline: evaluate once, advance tiers once, then fan out to
     /// Notification Center and/or the floating-pet bubble under independent gates.
     private func checkLimitAlerts() {
+        // 되살린 과거 값으로는 발화하지 않는다 — 기동하자마자 어제의 90% 로 경고를 쏘게 된다.
+        // 첫 성공 조회가 플래그를 내리면 그때부터 정상적으로 판정한다.
+        guard !limitsAreRestored else { return }
         let windows = buildLimitWindows()
         let alerts = Self.evaluateLimitAlerts(
             windows: windows, warn: warnThreshold, crit: critThreshold, tiers: &notifiedTier)
