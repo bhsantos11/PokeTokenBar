@@ -190,6 +190,12 @@ work happened. These are shared Core with a Linux-only UI, and the macOS views a
 - **While you were away**, summarising what happened since you last opened the panel.
 - **Keyboard navigation** — `Ctrl+1`…`Ctrl+5` for the tabs, `Escape` to close.
 
+<p align="center">
+  <img src="assets/screenshot-linux-home.png" width="240" alt="Home, with a companion and a summary of what happened while you were away">
+  <img src="assets/screenshot-linux-chronicle.png" width="240" alt="The Chronicle, a diary of the companion's life">
+  <img src="assets/screenshot-linux-trainer.png" width="240" alt="The Trainer Card, with stats and achievements">
+</p>
+
 **What doesn't:**
 
 Two are permanent, because Wayland forbids them: the floating pet cannot be dragged or remember its
