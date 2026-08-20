@@ -107,6 +107,34 @@ final class AchievementTests: XCTestCase {
         XCTAssertFalse(Achievements.newlyEarned(state: state, stats: stats(state)).contains(.bigSpender))
     }
 
+    /// [회귀 — Codex 리뷰] **갓 시작한 세이브의 첫 업적이 삼켜지면 안 된다.**
+    ///
+    /// 예전 규칙은 "기록이 비었으면 시드"였는데 신규 사용자도 기록이 비어 있다 — 그래서 첫 업적이
+    /// 조용히 사라졌다. 두 상태는 다르고, 이제 `achievementsSeeded` 로 구별한다.
+    func testFirstAchievementOfANewSaveIsAnnounced() async {
+        // 소급 시드를 이미 겪은 세이브(seeding=false)에서 첫 업적은 알려야 한다.
+        XCTAssertEqual(Achievements.announcement(newly: [.namer], seeding: false), .namer)
+        // 기능을 처음 보는 세이브에서만 조용하다.
+        XCTAssertNil(Achievements.announcement(newly: [.namer], seeding: true))
+    }
+
+    /// [회귀 — Codex 리뷰] 일지가 잘려 근거가 사라져도 **이미 달성한 업적은 풀리지 않는다.**
+    ///
+    /// 판정이 일지 위의 질의라, 200개 상한을 넘긴 오래된 사용자는 "밤의 사람" 같은 업적이 조용히
+    /// 잠겼다. 달성 취소는 사실의 변화가 아니라 기록의 유실이다.
+    func testEarnedAchievementsSurviveChronicleEviction() async {
+        var state = CompanionState()
+        state.chronicle = [entry(.renamed)]
+        let earnedBefore = Achievements.earned(state: state, stats: stats(state))
+        XCTAssertTrue(earnedBefore.contains(.namer))
+
+        // 기록해 둔 뒤 일지를 비운다 = 오래 써서 밀려난 상황.
+        state.earnedAchievements = Set(earnedBefore.map(\.rawValue))
+        state.chronicle = []
+        XCTAssertTrue(Achievements.earned(state: state, stats: stats(state)).contains(.namer),
+                      "근거가 밀려났다고 달성이 취소됐다")
+    }
+
     /// 순서가 고정돼야 한다 — 화면을 열 때마다 목록이 뒤바뀌면 못 읽는다.
     func testOrderIsStable() async {
         var state = CompanionState()
@@ -151,13 +179,11 @@ final class AchievementTests: XCTestCase {
     /// 때문이다. 규칙을 순수 함수로 떼어 여기서 직접 확인한다.
     func testAnnouncementIsSilentWhileSeedingAndSingleAfterwards() async {
         let many: [Achievement] = [.firstHatch, .firstGraduate, .shinyFound, .legendaryRaised]
-        XCTAssertNil(Achievements.announcement(newly: many, alreadyRecorded: []),
+        XCTAssertNil(Achievements.announcement(newly: many, seeding: true),
                      "첫 만남에서는 소급분을 조용히 심어야 한다 — 여기서 알리면 알림 폭탄")
-        XCTAssertEqual(Achievements.announcement(newly: many,
-                                                 alreadyRecorded: [Achievement.namer.rawValue]),
+        XCTAssertEqual(Achievements.announcement(newly: many, seeding: false),
                        .firstHatch, "그 뒤로는 새로 달성한 것 중 하나만")
-        XCTAssertNil(Achievements.announcement(newly: [],
-                                               alreadyRecorded: [Achievement.namer.rawValue]),
+        XCTAssertNil(Achievements.announcement(newly: [], seeding: false),
                      "새로 달성한 게 없으면 알릴 것도 없다")
     }
 

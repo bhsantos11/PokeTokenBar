@@ -213,11 +213,19 @@ final class BoxTests: XCTestCase {
         XCTAssertEqual(reloaded.state.eggUsage, 3_000_000)
     }
 
-    /// [P1 회귀] 박스를 담은 세이브는 **구버전이 읽어서 납작하게 만들면 안 된다.** 스키마를 올려
+    /// [P1 회귀] 새 상태를 담은 세이브는 **구버전이 읽어서 납작하게 만들면 안 된다.** 스키마를 올려
     /// 구버전이 `newerSchema` 로 거절하게 한다 — "못 읽는다"가 "읽고 지웠다"보다 낫다.
-    func testSaveSchemaIsBumpedForBoxState() async {
-        XCTAssertGreaterThanOrEqual(SaveEnvelope.schemaVersion, 2,
-                                    "boxed/heldEgg 를 담고도 schema 가 1이면 구버전이 조용히 날린다")
+    ///
+    /// 값만 비교하지 않고 **필드 수와 함께** 고정한다: 스키마를 안 올린 채 필드만 늘어나는 것이 실제로
+    /// 일어난 일이라(2 에서 멈춘 사이 다섯 개가 추가됐다), 막아야 하는 건 그 조합이다.
+    func testSaveSchemaIsBumpedWheneverStateGainsFields() async {
+        let fieldCount = Mirror(reflecting: CompanionState()).children.count
+        XCTAssertEqual(SaveEnvelope.schemaVersion, 3,
+                       "필드를 더했으면 스키마도 올려라 — 안 올리면 구버전이 조용히 날린다")
+        XCTAssertEqual(fieldCount, 22,
+                       "CompanionState 필드 수가 바뀌었다. 저장에 남는 필드를 더했다면 "
+                       + "SaveEnvelope.schemaVersion 을 올리고 이 숫자도 갱신하라 — 안 올리면 그 사이 "
+                       + "버전의 앱이 모르는 키를 무시한 뒤 다음 저장에서 통째로 날린다.")
     }
 
     /// 알 구매는 이제 파괴가 아니다 — destructive 스타일과 이로치 경고가 남아 있으면 안전한 동작이

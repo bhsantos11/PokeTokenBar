@@ -204,6 +204,15 @@ final class CompanionStore {
         save()
     }
 
+    /// 패널이 닫혔다 — 여기서부터가 다음 "없는 동안"이다.
+    ///
+    /// 열 때만 기준점을 옮기면 **패널이 열려 있는 동안 일어난 일까지 다음에 "그동안 있었던 일"로
+    /// 보고된다.** 눈앞에서 진화하는 걸 보고 닫았는데 다시 열면 "당신이 없는 동안 1마리 진화"가 뜬다.
+    func markPanelClosed() {
+        state.lastOpenedAt = clock()
+        save()
+    }
+
     // MARK: 트레이너 카드
 
     var trainerName: String? { state.trainerName }
@@ -211,6 +220,8 @@ final class CompanionStore {
 
     var earnedAchievements: [Achievement] { Achievements.earned(state: state, stats: trainerStats) }
     var lockedAchievements: [Achievement] { Achievements.locked(state: state, stats: trainerStats) }
+    /// 업적 판정에 쓰이는 "이미 달성한 것" 집합 — 화면과 같은 값을 쓰도록 노출한다.
+    var recordedAchievements: Set<String> { state.earnedAchievements }
     func achievementProgress(_ a: Achievement) -> (current: Int, target: Int)? {
         a.progress(stats: trainerStats)
     }
@@ -223,11 +234,14 @@ final class CompanionStore {
     private func announceNewAchievements() {
         let stats = trainerStats
         let newly = Achievements.newlyEarned(state: state, stats: stats)
+        // 첫 시드는 한 번만 일어난다 — 이후에는 달성한 게 없어도 플래그가 서 있어야 하므로
+        // `newly` 가 비어도 여기서 빠져나가지 않는다.
+        let seeding = !state.achievementsSeeded
+        state.achievementsSeeded = true
         guard !newly.isEmpty else { return }
         // 알릴 대상 판정은 `Achievements.announcement` 가 한다 — 알림은 설치본에서만 나가므로
         // 규칙을 여기 두면 테스트가 폭탄 구현과 정상 구현을 구별하지 못한다.
-        let announced = Achievements.announcement(newly: newly,
-                                                  alreadyRecorded: state.earnedAchievements)
+        let announced = Achievements.announcement(newly: newly, seeding: seeding)
         state.earnedAchievements.formUnion(newly.map(\.rawValue))
         guard let announced else { return }
         notifyCompanionEvent(l.achievementsTitle, l.achievementName(announced))
@@ -831,9 +845,6 @@ final class CompanionStore {
                                           a.pathIDs.compactMap { id in line.names[id].map { (id, $0) } })
                                   }))
         chronicle(.graduated, mon: a)
-        // Graduation has no `Celebration` case of its own (the popover shows `justGraduated`), but it
-        // is still a visible change and must repaint for the same reason the others do.
-        onCompanionEvent?()
         let name = currentLine?.localizedName(finalID, state.language) ?? ""
         justGraduated = name
         notifyCompanionEvent(l.notifGraduateTitle, l.notifGraduateBody(name))
@@ -856,6 +867,10 @@ final class CompanionStore {
         // (부화가 소비, 디스크/불러오기는 sanitized 가 정규화). 소비 지점은 hatchCore 한 곳으로 유지한다.
         // "알을 받는 순간" 즉시 프리패칭 시작 — 다음 부화의 종·라인·스프라이트 예열.
         Task { await self.ensureEggPrefetch() }
+        // 졸업에는 자체 `Celebration` 케이스가 없지만(팝오버는 `justGraduated` 를 본다) 눈에 보이는
+        // 변화이므로 다시 그려야 한다. **전이가 끝난 뒤에** 부른다 — 중간에 부르면 콜백이 아직 남아
+        // 있는 옛 활성 개체와 아직 안 세팅된 졸업 상태를 보고, 그 값으로 스프라이트를 캐싱한다.
+        onCompanionEvent?()
     }
 
     // MARK: 인벤토리 / 이상한 사탕

@@ -519,12 +519,14 @@ final class SaveTransferTests: XCTestCase {
                                      // 트레이너 이름 = 진행. 이 기기의 장부가 아니라 사람이 정한
                                      // 것이라 기기를 옮겨도 따라간다(언어와 달리 표시 설정이 아니다).
                                      "trainerName",
-                                     // 알림 기록 = 계정 원장이 아니라 진행에 가깝다. 달성 여부 자체는
-                                     // 상태에서 다시 계산되므로, 이 집합은 "이미 축하했다"만 옮긴다.
+                                     // 업적 기록 = 진행. 처음엔 "이미 축하했다"만 담았지만, 일지가
+                                     // 200개에서 잘리면 근거가 사라지는 업적이 있어 이 집합이
+                                     // **달성 사실 자체의 영구 기록**이 됐다 — 기기를 옮겨도 따라간다.
                                      "earnedAchievements",
                                      "dex", "collectedFinals", "inventory"]
         let deviceLedger: Set<String> = ["installBaselineSet", "claimedTodayTokensByProvider", "lastDate"]
-        let accountLedger: Set<String> = ["candyGrantTier", "candyFeatureSeeded"]
+        // achievementsSeeded = 계정 원장. "이 기능을 이미 겪었나"라 candyFeatureSeeded 와 같은 부류다.
+        let accountLedger: Set<String> = ["candyGrantTier", "candyFeatureSeeded", "achievementsSeeded"]
         // lastOpenedAt = 기기 환경설정 부류. "이 기기에서 내가 언제 봤나"라 진행이 아니고,
         // 남의 기기 시각을 들여오면 "그동안 있었던 일"이 엉뚱한 구간을 요약한다.
         let devicePreference: Set<String> = ["language", "lastOpenedAt"]

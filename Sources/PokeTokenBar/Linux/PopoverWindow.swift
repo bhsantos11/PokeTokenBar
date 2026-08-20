@@ -217,6 +217,9 @@ final class PopoverWindow {
 
     func hide() {
         isVisible = false
+        // The next "while you were away" starts now, not at the next open — otherwise anything that
+        // happens with the panel in front of you is reported back to you as missed.
+        companion.markPanelClosed()
         pendingConfirm = nil
         selectedSpecies = nil
         GtkRuntime.hasVisibleWindow = false

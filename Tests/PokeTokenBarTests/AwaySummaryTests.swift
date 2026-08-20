@@ -3,6 +3,11 @@ import XCTest
 
 // MARK: 없는 동안 있었던 일 — 일지 위의 순수 질의
 
+private final class AwayClock: @unchecked Sendable {
+    nonisolated(unsafe) var now: Date
+    init(_ d: Date) { now = d }
+}
+
 private struct AwayNoProvider: PokeProviding {
     func line(baseSpeciesID: Int) async throws -> EvoLine { throw URLError(.notConnectedToInternet) }
     func baseSpeciesIndex() async throws -> [BaseSpecies] { [] }
@@ -93,6 +98,30 @@ final class AwaySummaryTests: XCTestCase {
         // 두 번째로 열면 같은 사건이 다시 요약되면 안 된다(기준점이 옮겨졌으므로).
         s.markPanelOpened()
         XCTAssertTrue(s.awaySummary.isEmpty, "같은 사건이 두 번 요약됐다")
+    }
+
+    /// [회귀 — Codex 리뷰] 패널이 **열려 있는 동안** 일어난 일은 "그동안 있었던 일"이 아니다.
+    ///
+    /// 열 때만 기준점을 옮기면 눈앞에서 진화하는 걸 보고 닫았다가 다시 열었을 때 "없는 동안 1마리
+    /// 진화"가 뜬다. 닫을 때도 기준점을 옮겨야 다음 창이 닫힌 순간부터 시작한다.
+    func testEventsWhileThePanelIsOpenAreNotReportedAsMissed() async {
+        let clock = AwayClock(now)
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("away-open-\(UUID().uuidString).json")
+        let past = now.addingTimeInterval(-86_400).timeIntervalSinceReferenceDate
+        let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":1000,\"spentTokens\":0,"
+            + "\"lastDate\":\"d\",\"active\":null,\"lastOpenedAt\":\(past),\"chronicle\":[]}"
+        try? json.data(using: .utf8)!.write(to: url)
+        let s = CompanionStore(provider: AwayNoProvider(), clock: { clock.now },
+                               fileURL: url, rng: SeededRNG(seed: 2))
+
+        s.markPanelOpened()                       // 패널을 연다
+        clock.now = now.addingTimeInterval(60)    // 보고 있는 동안…
+        s.pet()                                   // (사건이 일어난 셈 치고)
+        s.markPanelClosed()                       // 닫는다 — 여기서부터가 다음 "없는 동안"
+        clock.now = now.addingTimeInterval(120)
+        s.markPanelOpened()
+        XCTAssertTrue(s.awaySummary.isEmpty, "보고 있는 동안의 일이 놓친 일로 보고됐다")
     }
 
     /// 0인 항목은 문장에서 빠진다 — "부화 0" 같은 말을 만들지 않는다.

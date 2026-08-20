@@ -355,11 +355,17 @@ final class UsageStore {
     var candyEligibleWindows: [CandyWindow] {
         let l = L(localizationLanguage)
         var windows: [CandyWindow] = []
-        if let u = limits?.fiveHour?.utilization {
+        // Restored-from-disk Claude windows are excluded **here**, not only via `limitsReady`.
+        // That flag is an OR across providers: with Codex limits live and Claude limits restored, it
+        // is true, and the stale Claude windows rode in behind it. Grants are edge-triggered, so a
+        // cached sub-100 value re-arms a window that was already paid out and the next live 100
+        // grants a second time. Codex limits are never cached, so they are always safe to include.
+        let claudeWindowsUsable = limits != nil && !limitsAreRestored
+        if claudeWindowsUsable, let u = limits?.fiveHour?.utilization {
             windows.append(CandyWindow(key: "claude.fiveHour", name: l.claudeFiveHour,
                                        kind: .session, utilization: u))
         }
-        if let u = limits?.sevenDay?.utilization {
+        if claudeWindowsUsable, let u = limits?.sevenDay?.utilization {
             windows.append(CandyWindow(key: "claude.sevenDay", name: l.claudeWeekly,
                                        kind: .weekly, utilization: u))
         }

@@ -16,6 +16,12 @@ enum Achievement: String, Sendable, CaseIterable {
 
     /// 달성 여부. 순수 — 상태와 "지금"만 본다.
     func isEarned(state: CompanionState, stats: TrainerStats) -> Bool {
+        // 한 번 달성한 업적은 **다시 잠기지 않는다.**
+        //
+        // 판정은 일지 위의 질의인데 일지는 200개에서 오래된 것부터 버려진다. 그래서 오래 쓰면
+        // "밤의 사람"·"이름을 지어"처럼 근거가 옛 기록에만 있는 업적이 조용히 풀렸다 — 달성을
+        // 되돌리는 건 기록의 유실이지 사실의 변화가 아니다. 기록된 것은 그대로 인정한다.
+        if state.earnedAchievements.contains(rawValue) { return true }
         switch self {
         case .firstHatch:
             return state.chronicle.contains { $0.kind == .hatched } || stats.speciesSeen > 0
@@ -88,8 +94,12 @@ enum Achievements {
     /// 규칙: 기록이 비어 있으면(이 기능을 처음 보는 세이브) 소급 달성분이 한꺼번에 쏟아지므로 조용히
     /// 심기만 한다. 그 뒤부터는 새로 달성한 것 중 하나를 알린다 — 여러 개가 동시에 달성돼도 알림은
     /// 하나다(축하가 목적이지 목록 낭독이 목적이 아니다).
-    static func announcement(newly: [Achievement], alreadyRecorded: Set<String>) -> Achievement? {
-        guard !alreadyRecorded.isEmpty else { return nil }
+    /// - Parameter seeding: 이 세이브가 업적 기능을 **처음 보는** 순간인가.
+    ///
+    /// 기존에는 "기록이 비었으면 시드"로 판단했는데, 갓 시작한 세이브도 기록이 비어 있다 —
+    /// 그래서 신규 사용자의 **첫 업적이 통째로 삼켜졌다**. 두 상태는 다른 것이므로 따로 전달한다.
+    static func announcement(newly: [Achievement], seeding: Bool) -> Achievement? {
+        guard !seeding else { return nil }
         return newly.first
     }
 }

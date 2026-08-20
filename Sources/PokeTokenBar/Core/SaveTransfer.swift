@@ -9,13 +9,18 @@ import Foundation
 /// 봉투의 `format`/`schema` 는 관대 디코딩 대상이 아니라(기본값 없음) 이 오인을 먼저 차단한다.
 struct SaveEnvelope: Codable, Sendable {
     static let formatID = "poketokenbar.save"
+    /// 3 = 애칭(`nickname`)·일지(`chronicle`)·트레이너 이름·업적·마지막 열람 시각이 들어간 버전.
     /// 2 = 박스(`boxed`)·보류된 알(`heldEgg`)이 상태에 들어간 버전.
+    ///
+    /// **상태에 필드를 더할 때마다 올린다.** 2 에서 멈춰 있던 동안 다섯 개가 추가됐고, 그 사이 버전의
+    /// 앱은 이 세이브를 받아들여 모르는 키를 무시한 뒤 다음 저장에서 통째로 날렸을 것이다 — 버전을
+    /// 두는 목적이 바로 그 조용한 손실을 막는 것이다.
     ///
     /// 올리지 않으면 **구버전 앱이 이 세이브를 조용히 납작하게 만든다**: schema 1 을 받아들이고
     /// 모르는 키를 무시한 뒤, 다음 저장에서 박스와 보류된 알을 통째로 날린다(에러 없이). 버전을 올리면
     /// 구버전은 `newerSchema` 로 거절한다 — "못 읽는다"가 "읽고 지웠다"보다 낫다.
     /// 새 버전이 v1 세이브를 읽는 방향은 그대로다(`header.schema <= schemaVersion`, 없는 키는 기본값).
-    static let schemaVersion = 2
+    static let schemaVersion = 3
 
     var format: String
     var schema: Int
@@ -77,6 +82,10 @@ enum SaveTransfer {
     /// 세이브에 들어올 수 있는 수치의 상한 — 실사용(수십억)의 10만 배라 정상 진행을 자르지 않으면서,
     /// 이 값끼리 더하고 빼도 Int64 범위 안에 머문다.
     static let maxTokenValue = 1_000_000_000_000_000
+
+    /// 아이템 보유 상한 — 정상 플레이는 한 자리 수라 실사용을 자르지 않으면서, 이 값끼리 더해도
+    /// Int64 근처에 못 간다.
+    static let maxInventoryCount = 1_000_000
 
     /// 내보내기 파일명 — 날짜가 들어가야 여러 번 내보내도 덮어쓰지 않는다.
     static func suggestedFileName(date: Date) -> String {
@@ -153,6 +162,12 @@ enum SaveTransfer {
         s.eggUsage = clampToken(s.eggUsage)
         s.claimedTodayTokensByProvider = s.claimedTodayTokensByProvider?.reduce(into: [:]) { result, entry in
             result[entry.key] = clampToken(entry.value)
+        }
+        // 인벤토리 개수도 외부 수치다. `Int.max` 가 들어오면 사탕 지급의 `+=` 가 오버플로 트랩으로
+        // 프로세스를 죽이고, 그 변경은 저장되지 않으므로 **재기동해도 같은 파일로 또 죽는다**.
+        // 상한은 표시·산술 모두에 넉넉한 값이면 충분하다(정상 보유량은 한 자리 수).
+        s.inventory = s.inventory.reduce(into: [:]) { result, entry in
+            result[entry.key] = min(max(0, entry.value), maxInventoryCount)
         }
         // 알 보증은 "지금 품고 있는 알"에만 붙는 값이라 활성 포켓몬과 공존할 수 없다. 손편집·구버전
         // 조합으로 둘 다 들어오면 그 보증이 다음 알로 새어 영구 프리미엄이 되므로 여기서 떨군다.

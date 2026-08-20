@@ -598,6 +598,10 @@ struct CompanionState: Codable, Sendable {
     /// 패널을 마지막으로 연 시각 — "없는 동안 있었던 일" 요약의 기준점.
     /// 처음 여는 경우 nil 이고, 그때는 요약을 만들지 않는다(전체 이력을 "그동안"으로 부를 수 없다).
     var lastOpenedAt: Date?
+    /// 업적 기능을 이미 한 번 겪었는가. 소급 달성분을 조용히 심는 첫 실행과, **갓 시작해서 아직
+    /// 아무것도 달성하지 않은** 세이브를 구별한다 — 둘 다 `earnedAchievements` 가 비어 있어서
+    /// 그것만으로는 신규 사용자의 첫 업적이 시드로 오인돼 삼켜졌다.
+    var achievementsSeeded = false
     // 도감
     var dex: [DexEntry] = []
     // 소유한 (base,final) 쌍 — 분기 다양성용
@@ -651,6 +655,7 @@ struct CompanionState: Codable, Sendable {
         trainerName        = c.lenientOptional(String.self, forKey: .trainerName)
         earnedAchievements = c.lenient(Set<String>.self, forKey: .earnedAchievements, default: [])
         lastOpenedAt       = c.lenientOptional(Date.self, forKey: .lastOpenedAt)
+        achievementsSeeded = c.lenient(Bool.self, forKey: .achievementsSeeded, default: false)
         collectedFinals    = c.lenient(Set<String>.self, forKey: .collectedFinals, default: [])
         language           = c.lenient(AppLanguage.self, forKey: .language, default: .systemDefault)
         inventory          = c.lenient([String: Int].self, forKey: .inventory, default: [:])
