@@ -66,8 +66,12 @@ Today's Collection tab is a flat grid of individuals capped at 60. macOS has two
 
 ### Gates (Track A)
 - [ ] Every phase verified on the real Plasma panel, not only headless
-- [ ] `swift test` still green on Linux; new pure logic covered by tests
-- [ ] README gap list shrunk in the same change that closes a gap (all three languages)
+- [x] `swift test` still green on Linux; new pure logic covered by tests — 760 tests, and every new
+      guard checked by injecting the defect it guards against
+- [x] README gap list shrunk (all three languages). **Honestly: this slipped.** The rule is to update
+      the README in the same change that closes a gap; it drifted about a dozen commits before being
+      caught up in one go on 2026-08-20. The list is a promise to users, so the batch fix is a repair,
+      not a demonstration that the rule works.
 
 ## Track B — Gameplay
 
@@ -365,8 +369,11 @@ itself (`limitsErrorText` + a placeholder card) instead of silently hiding the s
       and would double-grant if replayed from a past value
 - [x] Refuses caches older than 24h, from the future (clock adjustment), or corrupt
 - [x] Regression tests (7), including both sides of the expiry boundary
-- [ ] Not yet seen on screen — needs a launch during a 429 window with a cache present
-      (the cache file now exists and is being written, confirmed on the live install)
+- [x] Confirmed working **in production**: on 2026-08-20 a restart landed inside a 429 backoff and the
+      log shows `limits restored from cache (fetched 58s ago)` followed by a live refresh replacing it
+- [ ] The restored card's **stale marker** has still not been seen rendering — the restore keeps being
+      overtaken by a successful fetch within a second or two, which is the good outcome but not the
+      one that needs looking at
 
 ## Decided against
 
