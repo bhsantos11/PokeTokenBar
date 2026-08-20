@@ -171,21 +171,31 @@ make autostart-enable        # start at login (systemd --user)
 `make` on its own lists every target.
 
 **What works:** the tray icon with your animated companion and today's usage; the main window with
-Home / Shop / Bag / Collection; the evolution line; official 5-hour and weekly limit meters;
-desktop notifications for limits, hatches and evolutions; the floating pet; and Settings
-(language, interval, autostart, notifications). All usage parsing, companion progression and save
-data are the same code as macOS.
+Home / Shop / Bag / Collection / Trainer; the evolution line; official 5-hour and weekly limit
+meters with reset countdowns and a burn-rate forecast; the species Pokédex with paging, filters and
+a per-species detail; the catch log; the floating pet with its hover callout, right-click menu and
+speech-bubble alerts; desktop notifications; save export/import; the in-app update check; and
+Settings. All usage parsing, companion progression and save data are the same code as macOS.
 
-**What doesn't, yet:**
+The Linux build currently goes **further** than macOS in a few places, because it is where recent
+work happened. These are shared Core with a Linux-only UI, and the macOS views are still to come:
+
+- **The PC Box.** Buying an egg moves your Pokémon to a Box instead of destroying it, growth intact,
+  and you can take it back out or deliberately release it.
+- **The Chronicle.** A diary of your companion's life — hatches, evolutions, namings, Box moves —
+  written from the events themselves, so changing language rewrites the whole history.
+- **Achievements**, judged from that history rather than from counters, so they apply retroactively.
+- **The Trainer Card**, with a name you choose, and *Save as image* for a shareable PNG.
+- **Nicknames**, and a companion you can click to pet.
+- **While you were away**, summarising what happened since you last opened the panel.
+
+**What doesn't:**
 
 Two are permanent, because Wayland forbids them: the floating pet cannot be dragged or remember its
 position, and the window cannot anchor to the tray icon or close on focus-out — a client is not
 allowed to know or set its own surface position. Place the pet with a KWin window rule.
 
-The rest are simply not built yet, and are tracked in [ROADMAP.md](ROADMAP.md): limit reset
-countdowns, the burn-rate forecast, the species Pokédex with paging, the catch log, the floating
-pet's hover callout / right-click menu / speech-bubble alerts, the pet size and warning-threshold
-sliders, the Keychain opt-out, the in-app update check, and save export/import.
+Everything else is tracked in [ROADMAP.md](ROADMAP.md).
 
 ## Data sources
 
