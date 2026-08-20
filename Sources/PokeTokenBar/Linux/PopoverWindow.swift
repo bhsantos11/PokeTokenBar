@@ -50,6 +50,10 @@ final class PopoverWindow {
     /// actually catch" answer it cannot fit into a 44pt cell.
     private var selectedSpecies: Int?
 
+    /// Whether the trainer card is showing its name field, and the last export result to report.
+    private var renamingTrainer = false
+    private var trainerExportNote: String?
+
     /// Whether the Home hero is showing its rename field instead of the name.
     /// Kept on the window because `refresh()` rebuilds every widget — state inside the row would be
     /// discarded by whichever poll landed while someone was typing.
@@ -110,7 +114,7 @@ final class PopoverWindow {
         var built: [PopoverTab: Widget] = [:]
         let l = companion.l
         for (tab, title) in [(PopoverTab.home, l.home), (.shop, l.shop), (.bag, l.bag),
-                             (.collection, l.collection)] {
+                             (.collection, l.collection), (.trainer, l.trainerTab)] {
             let page = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 10)
             let scroller = gtk_scrolled_window_new(nil, nil)!
             let scrolled = UnsafeMutableRawPointer(scroller).assumingMemoryBound(to: GtkScrolledWindow.self)
@@ -221,6 +225,7 @@ final class PopoverWindow {
             case .shop:       buildShop(into: page, l)
             case .bag:        buildBag(into: page, l)
             case .collection: buildCollection(into: page, l)
+            case .trainer:    buildTrainer(into: page, l)
             }
         }
         gtk_widget_show_all(window)
@@ -705,6 +710,163 @@ final class PopoverWindow {
         case .box: buildBox(into: page, l)
         case .chronicle: buildChronicle(into: page, l)
         }
+    }
+
+    // MARK: Trainer card
+
+    /// The journey so far, on one card. Deliberately a separate tab rather than another Collection
+    /// segment: the Collection answers "what do I have", this answers "how far have I come", and
+    /// four chips was already the most the 412pt panel carries comfortably.
+    /// - Parameter forExport: leaves out the controls. A shared image with a "Save as image" button
+    ///   painted into it looks like a screenshot someone forgot to crop, and the note under the
+    ///   button would bake this machine's file path into a picture meant to be sent to other people.
+    private func buildTrainer(into page: Widget, _ l: L, forExport: Bool = false) {
+        let stats = companion.trainerStats
+        let card = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 8)
+        Gtk.addClass(card, "ptb-card")
+        Gtk.addClass(card, "ptb-hero")
+
+        let caption = Gtk.label(Gtk.escape(l.trainerCardTitle), align: GTK_ALIGN_CENTER)
+        Gtk.addClass(caption, "ptb-section")
+        Gtk.pack(card, caption)
+        Gtk.pack(card, trainerNameRow(l))
+
+        if let days = stats.daysJourneyed {
+            let journey = Gtk.label("<span size='small'>\(Gtk.escape(l.trainerDays(days)))</span>",
+                                    align: GTK_ALIGN_CENTER)
+            Gtk.addClass(journey, "ptb-muted")
+            Gtk.pack(card, journey)
+        }
+
+        // Completion reads against species *seen*, not the whole national dex — 5 of 649 would be
+        // a discouraging and meaningless number for a tray pet.
+        let completion = Gtk.meter(fraction: stats.completion, cssClass: "ptb-meter-hero")
+        Gtk.margins(completion, top: 4, start: 24, end: 24)
+        Gtk.pack(card, completion)
+        let seen = Gtk.label(
+            "<span size='small'>\(Gtk.escape(l.trainerSeen(stats.speciesGraduated, stats.speciesSeen)))</span>",
+            align: GTK_ALIGN_CENTER)
+        Gtk.addClass(seen, "ptb-muted")
+        Gtk.pack(card, seen)
+        Gtk.pack(page, card)
+
+        var rows: [(String, String)] = [
+            (l.trainerGraduations, String(stats.graduations)),
+            (l.trainerShiny, String(stats.shinySpecies)),
+            (l.trainerParty, String(stats.inParty)),
+            (l.trainerBox, String(stats.inBox)),
+            (l.trainerLifetime, TokenFormatter.compact(stats.lifetimeTokens)),
+            (l.trainerSpent, TokenFormatter.compact(stats.spentTokens)),
+        ]
+        if let rarest = stats.rarestGraduated { rows.append((l.trainerRarest, l.rarityLabel(rarest))) }
+        if let favourite = stats.favouriteSpeciesID {
+            rows.append((l.trainerFavourite, companion.speciesName(favourite)))
+        }
+        let statCard = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 4)
+        Gtk.addClass(statCard, "ptb-card")
+        for (label, value) in rows { Gtk.pack(statCard, trainerStatRow(label, value)) }
+        Gtk.pack(page, statCard)
+
+        guard !forExport else { return }
+        let export = gtk_button_new_with_label(l.trainerExport)!
+        gtk_widget_set_halign(export, GTK_ALIGN_CENTER)
+        gtkConnect(UnsafeMutableRawPointer(export), signal: "clicked",
+                   box: GtkCallbackBox { [weak self] in self?.exportTrainerCard(l) })
+        Gtk.pack(page, export)
+
+        if let note = trainerExportNote {
+            let label = Gtk.label("<span size='small'>\(Gtk.escape(note))</span>",
+                                  align: GTK_ALIGN_CENTER, wrap: true)
+            Gtk.addClass(label, "ptb-muted")
+            Gtk.pack(page, label)
+        }
+    }
+
+    /// Render the trainer card to a PNG the player can keep or share.
+    ///
+    /// Drawing is delegated to GTK rather than hand-rolled with Cairo: a `GtkOffscreenWindow` lays
+    /// out and paints the very same widgets the tab shows, so the image cannot drift from the screen
+    /// as the card changes. The alternative — a second, hand-drawn rendering — is a promise to keep
+    /// two layouts in step forever.
+    private func exportTrainerCard(_ l: L) {
+        let offscreen = gtk_offscreen_window_new()!
+        let content = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 10)
+        Gtk.margins(content, top: 16, bottom: 16, start: 16, end: 16)
+        // The panel is 412pt wide; the exported card keeps that proportion so the layout it was
+        // designed for is the layout that gets saved.
+        gtk_widget_set_size_request(content, 412, -1)
+        buildTrainer(into: content, l, forExport: true)
+        gtk_container_add(asContainer(offscreen), content)
+        gtk_widget_show_all(offscreen)
+        // Let GTK allocate and draw before asking for the pixels; without this the surface is empty.
+        while gtk_events_pending() != 0 { gtk_main_iteration_do(0) }
+
+        defer { gtk_widget_destroy(offscreen) }
+        guard let pixbuf = gtk_offscreen_window_get_pixbuf(asOffscreenWindow(offscreen)) else {
+            trainerExportNote = l.trainerExportFailed
+            refresh()
+            return
+        }
+        defer { g_object_unref(UnsafeMutableRawPointer(pixbuf)) }
+
+        let path = Self.trainerCardExportPath(now: Date())
+        var error: UnsafeMutablePointer<GError>?
+        // `gdk_pixbuf_save` is variadic and unreachable from Swift; `savev` takes the same options
+        // as parallel key/value arrays, and NULL/NULL means "no options".
+        let ok = gdk_pixbuf_savev(pixbuf, path.path, "png", nil, nil, &error)
+        if let error { g_error_free(error) }
+        trainerExportNote = ok != 0 ? l.trainerExported(path.path) : l.trainerExportFailed
+        refresh()
+    }
+
+    /// Where an exported card lands: the user's Pictures directory, else home.
+    ///
+    /// Resolved through `FileManager`, **not** by reading `XDG_PICTURES_DIR` directly — a GUI app
+    /// launched from a desktop file or a systemd unit does not inherit the shell environment, which
+    /// is exactly why `UsageEnvironmentTests` forbids direct environment reads in this target.
+    /// The file name itself is `TrainerCard.exportFileName`, in Core so it can be tested.
+    static func trainerCardExportPath(now: Date) -> URL {
+        let directory = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser
+        return directory.appendingPathComponent(TrainerCard.exportFileName(now: now))
+    }
+
+    private func trainerStatRow(_ label: String, _ value: String) -> Widget {
+        let row = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 8)
+        let name = Gtk.label("<span size='small'>\(Gtk.escape(label))</span>")
+        Gtk.addClass(name, "ptb-muted")
+        Gtk.pack(row, name)
+        let amount = Gtk.label("<span size='small'><b>\(Gtk.escape(value))</b></span>")
+        gtk_widget_set_halign(amount, GTK_ALIGN_END)
+        Gtk.pack(row, amount, expand: true)
+        return row
+    }
+
+    /// The trainer's name — click to set it. Same inline pattern as renaming a Pokémon.
+    private func trainerNameRow(_ l: L) -> Widget {
+        if renamingTrainer {
+            return inlineNameEditor(current: companion.trainerName ?? "",
+                                    placeholder: l.trainerNoName, hint: l.trainerNameHint, l) { [weak self] text in
+                self?.companion.setTrainerName(text)
+                self?.renamingTrainer = false
+            }
+        }
+        let row = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 6)
+        gtk_widget_set_halign(row, GTK_ALIGN_CENTER)
+        let button = gtk_button_new()!
+        gtk_button_set_relief(
+            UnsafeMutableRawPointer(button).assumingMemoryBound(to: GtkButton.self), GTK_RELIEF_NONE)
+        let shown = companion.trainerName ?? l.trainerNoName
+        let label = Gtk.label("<span size='x-large'><b>\(Gtk.escape(shown))</b></span>")
+        gtk_container_add(asContainer(button), label)
+        gtk_widget_set_tooltip_text(button, l.trainerNameTooltip)
+        gtkConnect(UnsafeMutableRawPointer(button), signal: "clicked",
+                   box: GtkCallbackBox { [weak self] in
+                       self?.renamingTrainer = true
+                       self?.refresh()
+                   })
+        Gtk.pack(row, button)
+        return row
     }
 
     // MARK: Chronicle
@@ -1317,25 +1479,35 @@ final class PopoverWindow {
         return heading
     }
 
-    /// Inline rename — an entry plus Save. Inline rather than a dialog for the same reason the
-    /// shop confirmations are inline: a transient window losing focus takes the dialog with it.
+    /// Inline rename for the companion. Inline rather than a dialog for the same reason the shop
+    /// confirmations are inline: a transient window losing focus takes the dialog with it.
     private func renameRow(_ l: L) -> Widget {
+        inlineNameEditor(current: companion.displayName,
+                         placeholder: companion.speciesDisplayName,
+                         hint: l.nicknameHint, l) { [weak self] text in
+            self?.companion.setNickname(text)
+            self?.renamingCompanion = false
+        }
+    }
+
+    /// A one-field inline editor: entry, Save, Cancel, and a hint. Shared by the companion nickname
+    /// and the trainer name so the two cannot drift in behaviour — Enter commits in both.
+    private func inlineNameEditor(current: String, placeholder: String, hint: String, _ l: L,
+                                  commitText: @escaping (String?) -> Void) -> Widget {
         let row = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 4)
         let entryRow = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 6)
         gtk_widget_set_halign(entryRow, GTK_ALIGN_CENTER)
 
         let entry = gtk_entry_new()!
-        gtk_entry_set_text(asEntry(entry), companion.displayName)
+        gtk_entry_set_text(asEntry(entry), current)
         gtk_entry_set_max_length(asEntry(entry), Int32(CompanionStore.nicknameMaxLength))
         gtk_entry_set_width_chars(asEntry(entry), 16)
-        gtk_entry_set_placeholder_text(asEntry(entry), companion.speciesDisplayName)
+        gtk_entry_set_placeholder_text(asEntry(entry), placeholder)
         Gtk.pack(entryRow, entry)
 
         let commit = GtkCallbackBox { [weak self] in
             guard let self else { return }
-            let text = gtk_entry_get_text(asEntry(entry)).map { String(cString: $0) }
-            self.companion.setNickname(text)
-            self.renamingCompanion = false
+            commitText(gtk_entry_get_text(asEntry(entry)).map { String(cString: $0) })
             self.refresh()
         }
         // Enter in the field commits, as well as the button — a one-field form that only accepts
@@ -1350,15 +1522,16 @@ final class PopoverWindow {
         gtkConnect(UnsafeMutableRawPointer(cancelButton), signal: "clicked",
                    box: GtkCallbackBox { [weak self] in
                        self?.renamingCompanion = false
+                       self?.renamingTrainer = false
                        self?.refresh()
                    })
         Gtk.pack(entryRow, cancelButton)
         Gtk.pack(row, entryRow)
 
-        let hint = Gtk.label("<span size='small'>\(Gtk.escape(l.nicknameHint))</span>",
-                             align: GTK_ALIGN_CENTER, wrap: true)
-        Gtk.addClass(hint, "ptb-muted")
-        Gtk.pack(row, hint)
+        let hintLabel = Gtk.label("<span size='small'>\(Gtk.escape(hint))</span>",
+                                  align: GTK_ALIGN_CENTER, wrap: true)
+        Gtk.addClass(hintLabel, "ptb-muted")
+        Gtk.pack(row, hintLabel)
         return row
     }
 
@@ -1641,6 +1814,7 @@ private extension PopoverTab {
         case .shop: return "shop"
         case .bag: return "bag"
         case .collection: return "collection"
+        case .trainer: return "trainer"
         }
     }
 }

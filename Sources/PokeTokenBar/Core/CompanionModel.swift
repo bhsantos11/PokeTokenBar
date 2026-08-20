@@ -589,6 +589,9 @@ struct CompanionState: Codable, Sendable {
     /// 동행의 일지 — 부화·진화·졸업·박스 출입 같은 사건 기록. 최신이 앞.
     /// 사건만 담고 문장은 읽을 때 만든다(`ChronicleCopy`) — 언어를 바꿔도 과거가 옛 언어로 굳지 않게.
     var chronicle: [ChronicleEntry] = []
+    /// 트레이너 이름. nil = 아직 안 정함(화면이 안내 문구를 대신 보여 준다).
+    /// **시스템 사용자명에서 유추하지 않는다** — 계정 이름은 사람이 불리고 싶은 이름이 아니다.
+    var trainerName: String?
     // 도감
     var dex: [DexEntry] = []
     // 소유한 (base,final) 쌍 — 분기 다양성용
@@ -638,6 +641,8 @@ struct CompanionState: Codable, Sendable {
         // 이 줄이 없으면 일지는 저장만 되고 다음 기동에 사라진다(손수 쓴 디코더의 상습 함정).
         chronicle          = c.lenient([Lossy<ChronicleEntry>].self, forKey: .chronicle,
                                        default: []).compactMap(\.value)
+        // 관대 디코딩 — 타입이 어긋나도 이름 하나 때문에 상태 전체를 잃지 않는다.
+        trainerName        = c.lenientOptional(String.self, forKey: .trainerName)
         collectedFinals    = c.lenient(Set<String>.self, forKey: .collectedFinals, default: [])
         language           = c.lenient(AppLanguage.self, forKey: .language, default: .systemDefault)
         inventory          = c.lenient([String: Int].self, forKey: .inventory, default: [:])

@@ -461,6 +461,39 @@ struct L {
     var petTooltip: String { t("눌러서 쓰다듬기", "Click to pet", "クリックでなでる", "Clic para acariciar") }
     // MARK: 일지(Chronicle) — 사건을 문장으로. 저장은 사건만 하고 문장은 읽을 때 만든다.
     var chronicleTitle: String { t("일지", "Chronicle", "日誌", "Crónica") }
+
+    // MARK: 트레이너 카드
+    var trainerTab: String { t("트레이너", "Trainer", "トレーナー", "Entrenador") }
+    var trainerCardTitle: String { t("트레이너 카드", "Trainer Card", "トレーナーカード", "Tarjeta de entrenador") }
+    var trainerNoName: String { t("이름을 정해 주세요", "Choose a name", "名前を決めましょう", "Elige un nombre") }
+    var trainerNameTooltip: String { t("눌러서 이름 정하기", "Click to set your name", "クリックで名前を設定", "Clic para poner tu nombre") }
+    /// 트레이너 이름 편집의 안내. 애칭 안내("비우면 종 이름")를 재사용하면 안 된다 — 트레이너에겐
+    /// 돌아갈 종 이름이 없다. 같은 위젯을 공유해도 문구는 각자의 것이어야 한다.
+    var trainerNameHint: String {
+        t("카드와 내보낸 이미지에 표시돼요.", "Shown on your card and any image you export.",
+          "カードと書き出した画像に表示されます。", "Aparece en tu tarjeta y en las imágenes que exportes.")
+    }
+    var trainerSpecies: String { t("도감", "Pokédex", "図鑑", "Pokédex") }
+    var trainerShiny: String { t("이로치", "Shiny", "色違い", "Variocolor") }
+    var trainerGraduations: String { t("졸업", "Graduated", "卒業", "Graduados") }
+    var trainerParty: String { t("동행", "With you", "手持ち", "Contigo") }
+    var trainerBox: String { t("박스", "In the Box", "ボックス", "En la Caja") }
+    var trainerLifetime: String { t("누적 토큰", "Lifetime tokens", "累計トークン", "Tokens acumulados") }
+    var trainerSpent: String { t("상점 지출", "Spent in the shop", "ショップ支出", "Gastado en la tienda") }
+    var trainerFavourite: String { t("가장 많이 키운", "Raised most", "いちばん育てた", "El más criado") }
+    var trainerRarest: String { t("최고 등급", "Rarest", "最高レア", "Más raro") }
+    func trainerDays(_ days: Int) -> String {
+        t("여정 \(days)일째", "Day \(days) of the journey", "旅立って \(days) 日目", "Día \(days) del viaje")
+    }
+    func trainerSeen(_ graduated: Int, _ seen: Int) -> String {
+        t("\(graduated) / \(seen) 종", "\(graduated) of \(seen) species",
+          "\(graduated) / \(seen) 種", "\(graduated) de \(seen) especies")
+    }
+    var trainerExport: String { t("이미지로 저장", "Save as image", "画像として保存", "Guardar como imagen") }
+    func trainerExported(_ path: String) -> String {
+        t("저장했어요: \(path)", "Saved to \(path)", "保存しました: \(path)", "Guardado en \(path)")
+    }
+    var trainerExportFailed: String { t("저장하지 못했어요.", "Could not save the image.", "保存できませんでした。", "No se pudo guardar la imagen.") }
     var chronicleEmptyTitle: String { t("아직 쓸 이야기가 없어요", "Nothing to tell yet", "まだ物語がありません", "Todavía no hay historia") }
     var chronicleEmptyHint: String {
         t("알이 깨고 포켓몬이 자라면 여기에 하나씩 적혀요.",

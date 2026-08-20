@@ -7,7 +7,7 @@ Two tracks, tracked in one file because they share the same Core.
   verification on a real panel rather than construction.
 - **Track B — Gameplay.** The game is currently monotonic: usage only goes up, nothing is ever at
   risk, and the only decision is which item to buy. These are the changes that give it choices,
-  rhythm and texture. **G1, G2, G3, G5, G6, G7 and G8 are built** (Linux); G4 is still blocked on a
+  rhythm and texture. **G1, G2, G3, G5, G6, G7, G8 and G9 are built** (Linux); G4 is still blocked on a
   design decision. Each carries a macOS gap, since that half cannot be built or verified on this machine.
 
 Everything below is **buildable** — the two genuinely impossible items (dragging the floating pet,
@@ -220,6 +220,33 @@ Chronicle writes that life down.
       fixed at 4 anyway, so the wrapping FlowBox provided was never used
 - [x] Cells keep a fixed width, so a filter leaving two species no longer stretches them to half the
       panel each
+
+### Phase G9 — Trainer Card  ✅ built, verified on screen
+The Collection answers "what do I have". This answers "how far have I come" — and it is the first
+thing in the app that can leave the app.
+
+- [x] A fifth tab with the journey on one card: species graduated of species seen, shinies,
+      graduations, who is with you, who is in the Box, lifetime and spent tokens, rarest graduate,
+      and the species you have raised most
+- [x] **Completion is measured against species seen**, not the national dex — 5 of 649 is a
+      discouraging and meaningless number for a tray pet
+- [x] Journey length counts from the **first chronicled event**, not the install date: the story
+      starts when something happened
+- [x] A trainer name you set yourself. **Never inferred from the system username** — an account name
+      is not what a person wants to be called
+- [x] **Save as image** renders the card to PNG in your Pictures folder, via a `GtkOffscreenWindow`
+      painting the very same widgets the tab shows, so the image cannot drift from the screen as the
+      card changes. The controls are excluded from the render — a shared picture with its own Save
+      button in it looks like an uncropped screenshot, and the result note would bake this machine's
+      file path into an image meant for other people
+- [x] A disguised Ditto's shiny does not count until it reveals itself
+- [x] Ties on "raised most" resolve deterministically, so the card does not change between openings
+- [x] Regression tests (11)
+- [ ] **macOS**: not wired. Stats and file naming are in Core and shared. **owner: Bernardo**.
+
+**Caught by an existing guard.** The first version read `XDG_PICTURES_DIR` directly and
+`UsageEnvironmentTests` rejected it: a GUI app launched from a desktop file or systemd unit does not
+inherit the shell environment. Resolved through `FileManager` instead.
 
 ### Phase G4 — Trade cards
 `SaveTransfer` already exports, imports, summarises, confirms and sanitises a whole save. A

@@ -32,6 +32,9 @@ typealias Widget = UnsafeMutablePointer<GtkWidget>
 @inline(__always) func asEntry(_ w: Widget) -> UnsafeMutablePointer<GtkEntry> {
     UnsafeMutableRawPointer(w).assumingMemoryBound(to: GtkEntry.self)
 }
+@inline(__always) func asOffscreenWindow(_ w: Widget) -> UnsafeMutablePointer<GtkOffscreenWindow> {
+    UnsafeMutableRawPointer(w).assumingMemoryBound(to: GtkOffscreenWindow.self)
+}
 
 enum Gtk {
     /// A label carrying Pango markup. Everything styled — bold numbers, coloured percentages — goes

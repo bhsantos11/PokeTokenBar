@@ -174,6 +174,18 @@ final class CompanionStore {
 
     var chronicleEntries: [ChronicleEntry] { state.chronicle }
 
+    // MARK: 트레이너 카드
+
+    var trainerName: String? { state.trainerName }
+    var trainerStats: TrainerStats { TrainerCard.stats(state: state, now: clock()) }
+
+    /// 트레이너 이름 설정. 비우면 해제 — 애칭과 같은 규칙을 쓴다(공백만도 해제, 문자 수로 자름).
+    func setTrainerName(_ raw: String?) {
+        let trimmed = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        state.trainerName = trimmed.isEmpty ? nil : String(trimmed.prefix(TrainerCard.nameMaxLength))
+        save()
+    }
+
     /// 일지 표시용 한 줄 — 사건 + 그날의 시각 + 그때의 이름으로 문장을 만든다.
     func chronicleLine(_ entry: ChronicleEntry) -> String {
         let hour = Calendar.current.component(.hour, from: entry.at)

@@ -516,6 +516,9 @@ final class SaveTransferTests: XCTestCase {
                                      // 일지 = 진행. 이 기기가 어디까지 적립했나가 아니라 **무슨 일이
                                      // 있었나**의 기록이라, 기기를 옮겨도 따라가야 한다.
                                      "chronicle",
+                                     // 트레이너 이름 = 진행. 이 기기의 장부가 아니라 사람이 정한
+                                     // 것이라 기기를 옮겨도 따라간다(언어와 달리 표시 설정이 아니다).
+                                     "trainerName",
                                      "dex", "collectedFinals", "inventory"]
         let deviceLedger: Set<String> = ["installBaselineSet", "claimedTodayTokensByProvider", "lastDate"]
         let accountLedger: Set<String> = ["candyGrantTier", "candyFeatureSeeded"]

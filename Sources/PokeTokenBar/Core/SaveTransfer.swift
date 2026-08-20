@@ -185,6 +185,10 @@ enum SaveTransfer {
         s.boxed = s.boxed.map(sanitizedMon)
         // 일지도 외부 입력이다 — 손편집 세이브가 수만 건을 넣으면 화면과 저장이 함께 무거워진다.
         // 애칭과 같은 상한을 걸고(문자 수), 개수는 앱이 쓰는 상한으로 자른다.
+        // 트레이너 이름도 외부 문자열 — 애칭과 같은 규칙(문자 수 상한, 공백만이면 없음).
+        s.trainerName = s.trainerName
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .flatMap { $0.isEmpty ? nil : String($0.prefix(TrainerCard.nameMaxLength)) }
         s.chronicle = s.chronicle.prefix(Chronicle.maxEntries).map { entry in
             var e = entry
             e.nickname = e.nickname.map { String($0.prefix(CompanionStore.nicknameMaxLength)) }

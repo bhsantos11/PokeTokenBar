@@ -4,7 +4,7 @@ import Observation
 /// The popover's tabs. Shared by both frontends — the macOS popover and the Linux window show the
 /// same four, and a tab that exists on one platform only is a parity bug waiting to happen.
 enum PopoverTab: String, CaseIterable {
-    case home, shop, bag, collection
+    case home, shop, bag, collection, trainer
 
     /// Parse a tab from a command-line name; nil for anything unrecognised.
     init?(name: String) {
