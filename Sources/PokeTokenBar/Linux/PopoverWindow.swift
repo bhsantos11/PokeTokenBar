@@ -178,13 +178,15 @@ final class PopoverWindow {
                                  .map { String(cString: $0) }
                              guard name != self.lastVisibleTab else { return }
                              self.lastVisibleTab = name
-                             guard self.pendingConfirm != nil || self.selectedSpecies != nil else { return }
+                             let hadTransientState = self.pendingConfirm != nil || self.selectedSpecies != nil
                              self.pendingConfirm = nil
                              // Coming back to the Pokédex should land on the grid, not on whatever
                              // cell was open several tabs ago; the Chronicle should land on today.
                              self.selectedSpecies = nil
                              self.chroniclePage = 0
-                             self.refresh()
+                             // The tab being revealed may not have been rebuilt since the last poll.
+                             let tab = self.visibleTab
+                             if hadTransientState || self.staleTabs.contains(tab) { self.rebuild(tab) }
                          })
     }
 
@@ -228,23 +230,45 @@ final class PopoverWindow {
         gtk_widget_hide(window)
     }
 
-    /// Rebuild whatever is on screen. Cheap enough to call on every poll (see the type doc).
+    /// Rebuild what is on screen, and mark the rest stale.
+    ///
+    /// This used to rebuild all five tabs on every poll. That was fair when the panel was "a few
+    /// dozen labels" (see the type doc), but it has since grown a hero card, an away card, a wallet
+    /// summary, an achievements list and a page of diary entries — and four fifths of that work is
+    /// for tabs nobody is looking at. Stale tabs are rebuilt when they are next shown, so the cost
+    /// follows attention instead of the clock.
     func refresh() {
         guard isVisible else { return }
+        captureCelebrationIfNeeded(companion.l)
+        let current = visibleTab
+        for tab in pages.keys where tab != current { staleTabs.insert(tab) }
+        rebuild(current)
+    }
+
+    /// The tab the stack is showing, or Home if the name is unrecognised.
+    private var visibleTab: PopoverTab {
+        gtk_stack_get_visible_child_name(asStack(stack))
+            .map { String(cString: $0) }
+            .flatMap { name in pages.keys.first { $0.identifier == name } } ?? .home
+    }
+
+    private func rebuild(_ tab: PopoverTab) {
+        guard let page = pages[tab] else { return }
+        staleTabs.remove(tab)
         let l = companion.l
-        captureCelebrationIfNeeded(l)
-        for (tab, page) in pages {
-            Gtk.clear(page)
-            switch tab {
-            case .home:       buildHome(into: page)
-            case .shop:       buildShop(into: page, l)
-            case .bag:        buildBag(into: page, l)
-            case .collection: buildCollection(into: page, l)
-            case .trainer:    buildTrainer(into: page, l)
-            }
+        Gtk.clear(page)
+        switch tab {
+        case .home:       buildHome(into: page)
+        case .shop:       buildShop(into: page, l)
+        case .bag:        buildBag(into: page, l)
+        case .collection: buildCollection(into: page, l)
+        case .trainer:    buildTrainer(into: page, l)
         }
         gtk_widget_show_all(window)
     }
+
+    /// Tabs whose contents no longer reflect the store. Rebuilt on the way in, never on a timer.
+    private var staleTabs: Set<PopoverTab> = []
 
     /// Pull the sprites the visible tab needs, then rebuild. Async because the first paint may have
     /// to download them.
