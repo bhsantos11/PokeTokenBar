@@ -459,6 +459,7 @@ struct L {
     var save: String { t("저장", "Save", "保存", "Guardar") }
     var renameTooltip: String { t("눌러서 이름 바꾸기", "Click to rename", "クリックで名前を変更", "Clic para renombrar") }
     var petTooltip: String { t("눌러서 쓰다듬기", "Click to pet", "クリックでなでる", "Clic para acariciar") }
+    var floatingPetMenuPet: String { t("쓰다듬기", "Pet", "なでる", "Acariciar") }
     // MARK: 일지(Chronicle) — 사건을 문장으로. 저장은 사건만 하고 문장은 읽을 때 만든다.
     var chronicleTitle: String { t("일지", "Chronicle", "日誌", "Crónica") }
 

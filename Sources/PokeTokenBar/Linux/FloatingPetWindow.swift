@@ -111,6 +111,9 @@ final class FloatingPetWindow {
         guard let popup = gtk_menu_new() else { return }
         menu = popup
         let items: [(String, () -> Void)] = [
+            // Petting lives in the menu rather than on the primary click, which already opens the
+            // panel. Rebinding that would trade a navigation people rely on for a piece of flavour.
+            (l.floatingPetMenuPet, { [weak self] in self?.pet() }),
             (l.floatingPetMenuOpen, onActivate),
             (l.settings, onSettings),
             (l.floatingPetMenuHide, { [weak self] in
@@ -145,13 +148,37 @@ final class FloatingPetWindow {
         syncBubble()
     }
 
+    /// Pet the companion from the desktop, and keep the reply on screen for its window.
+    ///
+    /// The reply borrows the alert bubble rather than adding a second floating surface: two things
+    /// that can appear above the pet would eventually appear at once and overlap.
+    private func pet() {
+        companion.pet()
+        syncBubble()
+        // The reaction expires on its own clock, so a repaint has to be scheduled for that moment —
+        // nothing else is guaranteed to redraw the pet before the next poll, two minutes later.
+        DispatchQueue.main.asyncAfter(deadline: .now() + CompanionStore.petReactionWindow + 0.1) {
+            [weak self] in MainActor.assumeIsolated { self?.syncBubble() }
+        }
+    }
+
     /// Show the current limit alert above the pet, or nothing.
     ///
     /// `UsageStore` owns the bubble's lifetime — it clears `currentBubbleAlert` after its TTL — so
     /// this only mirrors that state rather than running a timer of its own.
     private func syncBubble() {
         guard isVisible else { return }
+        // A limit alert outranks flavour: one is a warning about spending, the other is the pet
+        // being pleased to see you. Only when there is no alert does the reaction get the bubble.
         guard store.floatingPetBubbleAlerts, let alert = store.currentBubbleAlert else {
+            if let reaction = companion.petReaction {
+                Gtk.setMarkup(bubble: bubbleLabel, reaction)
+                Gtk.removeClass(bubble, "ptb-status-major")
+                Gtk.removeClass(bubble, "ptb-status-minor")
+                lastBubbleKey = nil
+                gtk_widget_show_all(bubble)
+                return
+            }
             gtk_widget_hide(bubble)
             lastBubbleKey = nil
             return

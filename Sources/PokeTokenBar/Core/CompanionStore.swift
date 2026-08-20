@@ -236,8 +236,15 @@ final class CompanionStore {
 
     // MARK: 쓰다듬기 (클릭 반응)
 
-    /// 마지막 쓰다듬기 반응. 뷰가 말풍선으로 띄운다. 창이 지나면 nil.
-    private(set) var petReaction: String?
+    /// 마지막 쓰다듬기 반응. 뷰가 말풍선으로 띄운다. **창이 지나면 읽는 즉시 nil** 이다.
+    ///
+    /// 저장값을 그대로 돌려주면 `update()` 가 정리해 줄 때까지(기본 2분) 화면에 남는다 — 3초 창이라고
+    /// 적어 두고 실제로는 2분이었다. 판정을 읽기 시점으로 옮기면 무엇이 다시 그리든 시간이 맞는다.
+    var petReaction: String? {
+        guard let until = petReactionUntil, clock() < until else { return nil }
+        return storedPetReaction
+    }
+    private var storedPetReaction: String?
     /// 반응이 **갱신됐다**는 신호. 같은 문장이 연속으로 뽑혀도 뷰가 새 반응임을 알 수 있게 한다
     /// (문자열 비교로 판단하면 같은 말이 두 번 나올 때 두 번째가 안 보인다).
     private(set) var petReactionSeq = 0
@@ -253,7 +260,7 @@ final class CompanionStore {
     func pet() -> String {
         let line = FloatingPetCopy.tapReaction(state: displayState, name: displayName,
                                                roll: rng.next(), l: l)
-        petReaction = line
+        storedPetReaction = line
         petReactionSeq += 1
         petReactionUntil = clock().addingTimeInterval(Self.petReactionWindow)
         return line
@@ -616,7 +623,7 @@ final class CompanionStore {
         announceNewAchievements()
         // 쓰다듬기 반응 만료 — 이벤트 창과 같은 자리에서 정리한다. 뷰가 자기 타이머를 돌리지 않게
         // 하는 것이 핵심이다: 상시 표시 UI 의 타이머는 에너지 규칙(defect-log §에너지)에 걸린다.
-        if let until = petReactionUntil, clock() > until { petReaction = nil; petReactionUntil = nil }
+        if let until = petReactionUntil, clock() > until { storedPetReaction = nil; petReactionUntil = nil }
         // 이벤트(진화/졸업/부화) 창 만료 — .levelUp 창이 끝날 때 문구 플래그를 함께 정리한다.
         // justEvolvedTo 는 여기(창 만료)에서만 지운다: 과거엔 매 update() 초입에 무조건 nil 로 밀어,
         // 진화 후 4초 창 도중 update 틱이 끼면 "…(으)로 진화했어요"→"성장했어요"로 되돌아갔다(회귀 #4).

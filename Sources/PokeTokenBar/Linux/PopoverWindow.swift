@@ -1543,6 +1543,13 @@ final class PopoverWindow {
                        guard let self else { return }
                        self.companion.pet()
                        self.refresh()
+                       // The reaction expires on its own clock; without a repaint scheduled for that
+                       // moment it would sit on screen until the next poll happens to redraw.
+                       DispatchQueue.main.asyncAfter(
+                           deadline: .now() + CompanionStore.petReactionWindow + 0.1
+                       ) { [weak self] in
+                           MainActor.assumeIsolated { self?.refresh() }
+                       }
                    })
         Gtk.pack(holder, button)
         // The static frame goes up first so the card never appears empty, then the animation

@@ -104,6 +104,12 @@ enum Gtk {
         return bar
     }
 
+    /// Plain, escaped text into a markup label — the pet's reply is a whole sentence and must not
+    /// be parsed as markup just because a nickname happens to contain an ampersand.
+    static func setMarkup(bubble label: Widget, _ text: String) {
+        setMarkup(label, "<span size='small'>\(escape(text))</span>")
+    }
+
     static func addClass(_ widget: Widget, _ name: String) {
         gtk_style_context_add_class(gtk_widget_get_style_context(widget), name)
     }

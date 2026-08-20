@@ -143,6 +143,27 @@ final class InteractionTests: XCTestCase {
         }
     }
 
+    /// [회귀] 반응은 **읽는 순간** 만료돼야 한다.
+    ///
+    /// 저장값을 그대로 돌려주면 `update()` 가 정리해 줄 때까지 화면에 남는다 — 폴 간격이 기본 2분이라
+    /// "3초 창"이라고 적어 두고 실제로는 2분이었다. 창 안/밖을 각각 확인한다(한쪽만 보면 못 잡는다).
+    func testReactionExpiresOnReadNotOnlyOnUpdate() async {
+        let clock = ClockBoxI(now)
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("react-read-\(UUID().uuidString).json")
+        let mon = "{\"baseID\":10,\"pathIDs\":[10],\"stageIndex\":0,\"usedAtStage\":1,"
+            + "\"rarity\":\"common\",\"totalForms\":3}"
+        let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":1000,\"spentTokens\":0,"
+            + "\"lastDate\":\"d\",\"active\":\(mon)}"
+        try? json.data(using: .utf8)!.write(to: url)
+        let s = CompanionStore(provider: InteractionNoProvider(), clock: { clock.now },
+                               fileURL: url, rng: SeededRNG(seed: 4))
+        s.pet()
+        XCTAssertNotNil(s.petReaction, "창 안에서는 보여야 한다")
+        clock.now = now.addingTimeInterval(CompanionStore.petReactionWindow + 0.5)
+        XCTAssertNil(s.petReaction, "update() 없이도 창이 지나면 사라져야 한다")
+    }
+
     /// 반응은 창이 지나면 사라진다 — 뷰가 자기 타이머를 돌리지 않도록 `update()` 가 정리한다.
     func testReactionExpiresOnTheNextUpdate() async {
         let clock = ClockBoxI(now)
