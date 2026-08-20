@@ -259,6 +259,12 @@ final class PopoverWindow {
         for entry in companion.dexEntriesSorted.prefix(Self.catchLogLimit) {
             await cacheSprite(speciesID: entry.finalID, shiny: entry.isShiny)
         }
+        // The Chronicle draws a sprite per entry, and most of its rows came out blank: the species
+        // it mentions are historical, so many are no longer in the dex grid or the catch log and
+        // nothing else had fetched them. Only the visible page, so a long history is not a download.
+        for entry in companion.chronicleEntries.prefix(Self.chronicleLimit * 2) {
+            if let id = entry.speciesID { await cacheSprite(speciesID: id, shiny: entry.isShiny) }
+        }
         await resolveMissingChainNames()
         refresh()
     }

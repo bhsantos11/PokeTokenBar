@@ -361,6 +361,17 @@ itself (`limitsErrorText` + a placeholder card) instead of silently hiding the s
 - [ ] Not yet seen on screen — needs a launch during a 429 window with a cache present
       (the cache file now exists and is being written, confirmed on the live install)
 
+## Decided against
+
+Kept here so they are not re-proposed as if they were oversights.
+
+- **Separate settings for the new features.** Achievement notifications already ride the existing
+  *companion notifications* toggle, which is the same class of event, so a second switch would split
+  one decision across two places. The Chronicle records passively and is capped at 200 entries, so
+  there is nothing to turn off that costs the user anything.
+- **Affection earned by petting** (offered 2026-08-19, declined). It converts a free interaction into
+  a daily chore, and the pet is meant to be pleased to see you rather than to need you.
+
 ## To refine
 
 Ideas worth building that are **not yet designed**. Deliberately not checkboxes: turning one into a
