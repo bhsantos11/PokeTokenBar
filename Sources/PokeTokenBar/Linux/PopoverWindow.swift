@@ -59,6 +59,10 @@ final class PopoverWindow {
     /// discarded by whichever poll landed while someone was typing.
     private var renamingCompanion = false
 
+    /// Zero-based page of the Chronicle. The store keeps far more entries than one screen shows, and
+    /// a diary you cannot read back is a log.
+    private var chroniclePage = 0
+
     /// Zero-based page of the species grid.
     private var dexPage = 0
     /// Rarity filter; nil shows everything. Tapping the active capsule clears it (`l.dexFilterHint`).
@@ -175,8 +179,9 @@ final class PopoverWindow {
                              guard self.pendingConfirm != nil || self.selectedSpecies != nil else { return }
                              self.pendingConfirm = nil
                              // Coming back to the Pokédex should land on the grid, not on whatever
-                             // cell was open several tabs ago.
+                             // cell was open several tabs ago; the Chronicle should land on today.
                              self.selectedSpecies = nil
+                             self.chroniclePage = 0
                              self.refresh()
                          })
     }
@@ -819,6 +824,7 @@ final class PopoverWindow {
             gtkConnect(UnsafeMutableRawPointer(button), signal: "clicked",
                        box: GtkCallbackBox { [weak self] in
                            self?.selectedSpecies = nil
+                           self?.chroniclePage = 0
                            self?.collectionMode = mode
                            self?.refresh()
                        })
@@ -1092,8 +1098,15 @@ final class PopoverWindow {
             Gtk.pack(page, empty)
             return
         }
+        let pageCount = max(1, (entries.count + Self.chronicleLimit - 1) / Self.chronicleLimit)
+        // Entries only ever get added at the front, so a page index can outrun the list after a
+        // reload with a shorter history; clamp rather than draw an empty page.
+        chroniclePage = min(chroniclePage, pageCount - 1)
+        let start = chroniclePage * Self.chronicleLimit
+        let visible = Array(entries[start..<min(start + Self.chronicleLimit, entries.count)])
+
         var lastDay: String?
-        for entry in entries.prefix(Self.chronicleLimit) {
+        for entry in visible {
             // A date heading per day, so a long history reads as a diary rather than one long list.
             let day = Self.dateFormatter(companion.language).string(from: entry.at)
             if day != lastDay {
@@ -1105,6 +1118,25 @@ final class PopoverWindow {
             }
             Gtk.pack(page, chronicleRow(entry, l))
         }
+
+        guard pageCount > 1 else { return }
+        let pager = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 10)
+        gtk_widget_set_halign(pager, GTK_ALIGN_CENTER)
+        Gtk.margins(pager, top: 8)
+        // "‹" walks towards the present, "›" towards the past — the list is newest-first, so the
+        // arrows read as moving through time rather than through a list.
+        Gtk.pack(pager, pagerButton("‹", enabled: chroniclePage > 0) { [weak self] in
+            self?.chroniclePage -= 1; self?.refresh()
+        })
+        let label = Gtk.label(
+            "<span size='small'>\(Gtk.escape(l.dexPageLabel(chroniclePage + 1, pageCount)))</span>")
+        Gtk.addClass(label, "ptb-muted")
+        gtk_widget_set_valign(label, GTK_ALIGN_CENTER)
+        Gtk.pack(pager, label)
+        Gtk.pack(pager, pagerButton("›", enabled: chroniclePage < pageCount - 1) { [weak self] in
+            self?.chroniclePage += 1; self?.refresh()
+        })
+        Gtk.pack(page, pager)
     }
 
     private func chronicleRow(_ entry: ChronicleEntry, _ l: L) -> Widget {
@@ -1123,8 +1155,12 @@ final class PopoverWindow {
         return row
     }
 
-    /// How many diary entries one build draws. The store keeps more; this bounds the widget count.
-    private static let chronicleLimit = 40
+    /// How many diary entries fill one page.
+    ///
+    /// Twelve, not forty: the pager sits under the list, and forty entries buried it behind a long
+    /// scroll — a control you have to go looking for is one most people never find. Twelve is about
+    /// a screen and a half, so the way to older entries is always close to hand.
+    private static let chronicleLimit = 12
 
     /// Box tab label, carrying the count so a Pokémon waiting in there is visible without opening it.
     private func boxSegmentTitle(_ l: L) -> String {
