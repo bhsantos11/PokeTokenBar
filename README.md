@@ -188,6 +188,7 @@ work happened. These are shared Core with a Linux-only UI, and the macOS views a
 - **The Trainer Card**, with a name you choose, and *Save as image* for a shareable PNG.
 - **Nicknames**, and a companion you can click to pet.
 - **While you were away**, summarising what happened since you last opened the panel.
+- **Keyboard navigation** — `Ctrl+1`…`Ctrl+5` for the tabs, `Escape` to close.
 
 **What doesn't:**
 

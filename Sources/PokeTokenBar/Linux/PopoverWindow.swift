@@ -141,16 +141,23 @@ final class PopoverWindow {
         pages = built
         Gtk.pack(root, stack, expand: true)
         observeTabChanges()
+        installKeyboardShortcuts()
 
         // Closing must hide, not destroy: the tray outlives the window, and destroying it would
         // leave every later `show()` pointing at freed widgets. Returning true stops GTK's default
         // destroy handler.
-        let box = GtkCallbackBox { [weak self] in
-            self?.hide()
-            onClose()
-        }
-        gtkConnectDeleteEvent(UnsafeMutableRawPointer(window), box: box)
+        self.onClose = onClose
+        gtkConnectDeleteEvent(UnsafeMutableRawPointer(window),
+                              box: GtkCallbackBox { [weak self] in self?.closeWindow() })
     }
+
+    /// The single way this window closes, whichever gesture asked for it.
+    private func closeWindow() {
+        hide()
+        onClose?()
+    }
+
+    private var onClose: (() -> Void)?
 
     // MARK: visibility
 
@@ -159,6 +166,36 @@ final class PopoverWindow {
     func toggle() { isVisible ? hide() : show() }
 
     /// Switch tabs programmatically. Used by `--window <tab>`; the switcher drives it otherwise.
+    /// Keyboard access to the panel: Ctrl+1…5 for the tabs, Escape to close.
+    ///
+    /// Five tabs and, until now, no way to reach any of them without the mouse. Someone who works in
+    /// a terminal all day should not have to leave the keyboard to glance at a token count.
+    ///
+    /// Ctrl is required for the digits so typing a nickname or a trainer name still types digits;
+    /// the rename fields are the only text entry in the window and they would otherwise swallow or
+    /// be swallowed by bare number keys.
+    private func installKeyboardShortcuts() {
+        let order: [PopoverTab] = [.home, .shop, .bag, .collection, .trainer]
+        gtkConnectKeyPress(UnsafeMutableRawPointer(window), box: GtkKeyCallbackBox { [weak self] keyval, control in
+            guard let self else { return false }
+            if keyval == GDK_KEY_Escape {
+                // Exactly what the close button does — Escape must not become a second, subtly
+                // different way to close the window.
+                self.closeWindow()
+                return true
+            }
+            guard control else { return false }
+            // GDK numbers the digit keys consecutively from `1`, and the numpad separately.
+            let digit = Int(keyval) - Int(GDK_KEY_1)
+            let numpadDigit = Int(keyval) - Int(GDK_KEY_KP_1)
+            let index = order.indices.contains(digit) ? digit
+                : (order.indices.contains(numpadDigit) ? numpadDigit : nil)
+            guard let index else { return false }
+            self.select(order[index])
+            return true
+        })
+    }
+
     /// Clearing armed confirmations has to hang off the **stack**, not off `select(_:)`.
     ///
     /// `GtkStackSwitcher` changes the visible child itself; a user clicking a tab never calls

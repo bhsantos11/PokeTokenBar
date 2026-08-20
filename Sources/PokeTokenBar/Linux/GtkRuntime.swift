@@ -228,6 +228,42 @@ func gtkConnectScrollPassthrough(_ instance: UnsafeMutableRawPointer) -> gulong 
         nil, nil, GConnectFlags(rawValue: 0))
 }
 
+/// Connect a widget's `key-press-event`, handing the callback the keyval and modifier state.
+///
+/// Handler shape is `(widget, event, user_data) -> gboolean`; returning TRUE marks the key as
+/// handled so it does not also reach whatever has focus.
+@discardableResult
+func gtkConnectKeyPress(_ instance: UnsafeMutableRawPointer, box: GtkKeyCallbackBox) -> gulong {
+    let callback: @convention(c) (
+        UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?
+    ) -> gboolean = { _, event, data in
+        guard let data, let event else { return 0 }
+        var keyval: guint = 0
+        gdk_event_get_keyval(event.assumingMemoryBound(to: GdkEvent.self), &keyval)
+        var state = GdkModifierType(rawValue: 0)
+        gdk_event_get_state(event.assumingMemoryBound(to: GdkEvent.self), &state)
+        let handled = Unmanaged<GtkKeyCallbackBox>.fromOpaque(data).takeUnretainedValue()
+            .run(keyval, state.rawValue & GDK_CONTROL_MASK.rawValue != 0)
+        return handled ? 1 : 0
+    }
+    let destroy: @convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<GClosure>?) -> Void = {
+        data, _ in
+        guard let data else { return }
+        Unmanaged<GtkKeyCallbackBox>.fromOpaque(data).release()
+    }
+    return g_signal_connect_data(
+        instance, "key-press-event",
+        unsafeBitCast(callback, to: GCallback.self),
+        box.opaque, destroy, GConnectFlags(rawValue: 0))
+}
+
+/// A key handler: `(keyval, controlHeld) -> handled`. Same ownership contract as `GtkCallbackBox`.
+final class GtkKeyCallbackBox {
+    let run: (guint, Bool) -> Bool
+    init(_ run: @escaping (guint, Bool) -> Bool) { self.run = run }
+    var opaque: UnsafeMutableRawPointer { Unmanaged.passRetained(self).toOpaque() }
+}
+
 /// Connect a window's `delete-event` (the close button).
 ///
 /// Separate from `gtkConnect` because this signal's handler returns `gboolean`, and returning TRUE
