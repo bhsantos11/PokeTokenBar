@@ -7,7 +7,7 @@ Two tracks, tracked in one file because they share the same Core.
   verification on a real panel rather than construction.
 - **Track B — Gameplay.** The game is currently monotonic: usage only goes up, nothing is ever at
   risk, and the only decision is which item to buy. These are the changes that give it choices,
-  rhythm and texture. **G1, G2, G3, G5–G10 are built** (Linux); G4 is still blocked on a design decision. Each carries a macOS gap, since that half cannot be built or verified on this machine.
+  rhythm and texture. **G1, G2, G3, G5–G11 are built** (Linux); G4 is still blocked on a design decision. Each carries a macOS gap, since that half cannot be built or verified on this machine.
 
 Everything below is **buildable** — the two genuinely impossible items (dragging the floating pet,
 anchoring the window to the tray icon) are Wayland restrictions and are recorded at the bottom
@@ -272,6 +272,20 @@ only in notifications, which are compiled out of test builds. Injecting the defe
 moved into a pure `Achievements.announcement`, which the test now checks directly; injecting the
 defect there fails as it should. Same lesson as `limitsReady` in G5: a rule that lives inside a
 side-effecting method cannot be tested, and a test that cannot fail is not a guard.
+
+### Phase G11 — The celebration moment  ✅ built, verified on screen
+Evolution is what the whole app builds towards, and it was announced with a line of text. The one
+thing the player wanted to see — the change itself — was the thing the banner did not show.
+
+- [x] The banner now shows **before → after sprites** for an evolution, and the arrival for a hatch
+      or a Ditto reveal, reading the two species from the Chronicle entry the event already wrote
+      rather than keeping a second copy of the same fact
+- [x] The arrow is drawn only when the new form's sprite is actually cached — it is downloaded after
+      the evolution, and an arrow pointing at nothing reads as a missing image
+- [x] **Fixed a copy bug the banner exposed**: the message used the companion's *nickname*, so it
+      read "Evolved into Sprout!" — naming the thing that had not changed and omitting the one thing
+      the message exists to announce. It now names the new form, taken from the Chronicle so it
+      survives the 4s event window closing before the next repaint
 
 ### Phase G4 — Trade cards
 `SaveTransfer` already exports, imports, summarises, confirms and sanitises a whole save. A

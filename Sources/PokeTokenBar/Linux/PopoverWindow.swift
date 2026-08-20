@@ -76,6 +76,9 @@ final class PopoverWindow {
     /// straight off the store because the store's copy is consumed as soon as it is shown, while
     /// the banner has to survive the rebuilds that tab switches and refreshes cause.
     private var activeCelebration: String?
+    /// The species either side of the celebration: (before, after). `after` is nil for events that
+    /// are an arrival rather than a change.
+    private var celebrationSprites: (Int, Int?)?
     private var seenCelebrationSeq = -1
 
     /// Live animation for the Home sprite: the frames, where we are, and a generation counter that
@@ -316,11 +319,31 @@ final class PopoverWindow {
               companion.celebrationSeq != seenCelebrationSeq else { return }
         seenCelebrationSeq = companion.celebrationSeq
         let name = companion.displayName
+        // Which sprites to put beside the words. The Chronicle already recorded the before and after
+        // species for this very event, so the banner reads them rather than the store keeping a
+        // second copy of the same fact.
+        celebrationSprites = companion.chronicleEntries.first.flatMap { entry -> (Int, Int?)? in
+            guard let from = entry.speciesID else { return nil }
+            switch (celebration, entry.kind) {
+            case (.evolve, .evolved):          return (from, entry.toSpeciesID)
+            case (.hatch, .hatched):           return (from, nil)
+            case (.dittoReveal, .dittoRevealed): return (from, nil)
+            default:                           return nil
+            }
+        }
         switch celebration {
         case .hatch(let shiny):
             activeCelebration = "\(shiny ? l.notifShinyHatchTitle : l.notifHatchTitle)\n\(l.notifHatchBody(name))"
         case .evolve:
-            activeCelebration = "\(l.notifEvolveTitle)\n\(l.notifEvolveBody(name))"
+            // The **new form's** name, not the companion's. `displayName` is the nickname, so this
+            // read "Evolved into Sprout!" — naming the thing that did not change, and leaving out
+            // the one thing the message exists to announce.
+            // `justEvolvedTo` is cleared when the 4s event window closes, while this banner lives
+            // for 30s and is captured on whichever refresh happens next — often after that window.
+            // The Chronicle entry keeps the new form permanently, so it is the durable source.
+            let form = celebrationSprites?.1.map { companion.speciesName($0) }
+                ?? companion.justEvolvedTo ?? name
+            activeCelebration = "\(l.notifEvolveTitle)\n\(l.notifEvolveBody(form))"
         case .dittoReveal(let shiny):
             activeCelebration = shiny ? l.notifShinyDittoRevealTitle : l.notifDittoRevealTitle
         }
@@ -332,15 +355,44 @@ final class PopoverWindow {
             MainActor.assumeIsolated {
                 guard let self, self.seenCelebrationSeq == shown else { return }
                 self.activeCelebration = nil
+                self.celebrationSprites = nil
                 self.refresh()
             }
         }
     }
 
+    /// The moment something happened, in words **and** in sprites.
+    ///
+    /// Evolution is the payoff the whole app builds towards, and it used to be a line of text — the
+    /// one thing the player wanted to see, the change itself, was the thing the banner did not show.
+    /// For an evolution the two forms sit either side of an arrow; for a hatch or a reveal, the one
+    /// who arrived stands next to the words.
     private func celebrationBanner(_ text: String) -> Widget {
-        let banner = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 2)
+        let banner = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 6)
         Gtk.addClass(banner, "ptb-card")
         Gtk.addClass(banner, "ptb-celebration")
+
+        if let (from, to) = celebrationSprites {
+            let strip = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 10)
+            gtk_widget_set_halign(strip, GTK_ALIGN_CENTER)
+            let shiny = companion.currentIsShiny
+            if let before = spriteImage("\(from)-\(shiny)", size: 48)
+                ?? spriteImage("\(from)-false", size: 48) {
+                Gtk.pack(strip, before)
+            }
+            // The arrow only earns its place when there is something on the other side of it. The
+            // new form's sprite may not be cached yet — it is downloaded after the evolution — and
+            // an arrow pointing at nothing reads as a missing image rather than a transformation.
+            if let to, let after = spriteImage("\(to)-\(shiny)", size: 56)
+                ?? spriteImage("\(to)-false", size: 56) {
+                let arrow = Gtk.label("<span size='large'>→</span>")
+                gtk_widget_set_valign(arrow, GTK_ALIGN_CENTER)
+                Gtk.pack(strip, arrow)
+                Gtk.pack(strip, after)
+            }
+            Gtk.pack(banner, strip)
+        }
+
         let label = Gtk.label("<b>\(Gtk.escape(text))</b>", align: GTK_ALIGN_CENTER, wrap: true)
         gtk_label_set_justify(asLabel(label), GTK_JUSTIFY_CENTER)
         Gtk.pack(banner, label)
