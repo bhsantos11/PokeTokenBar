@@ -858,6 +858,21 @@ final class PopoverWindow {
         Gtk.addClass(caption, "ptb-section")
         Gtk.pack(card, caption)
         Gtk.pack(card, trainerNameRow(l))
+        // The companion, on the card. This is the one artifact meant to leave the app, and a page of
+        // figures with no picture on it is a spreadsheet — the Pokémon is the reason any of the
+        // numbers mean anything.
+        if let id = companion.currentSpeciesID,
+           let image = spriteImage("\(id)-\(companion.currentIsShiny)", size: 72)
+            ?? spriteImage("\(id)-false", size: 72) {
+            let holder = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 2)
+            gtk_widget_set_halign(holder, GTK_ALIGN_CENTER)
+            Gtk.pack(holder, image)
+            let caption = Gtk.label("<span size='small'>\(Gtk.escape(companion.displayName))</span>",
+                                    align: GTK_ALIGN_CENTER)
+            Gtk.addClass(caption, "ptb-muted")
+            Gtk.pack(holder, caption)
+            Gtk.pack(card, holder)
+        }
 
         if let days = stats.daysJourneyed {
             let journey = Gtk.label("<span size='small'>\(Gtk.escape(l.trainerDays(days)))</span>",
@@ -887,6 +902,11 @@ final class PopoverWindow {
             (l.trainerSpent, TokenFormatter.compact(stats.spentTokens)),
         ]
         if let rarest = stats.rarestGraduated { rows.append((l.trainerRarest, l.rarityLabel(rarest))) }
+        // One achievement on the card, so a shared image says something about the journey rather
+        // than only counting it.
+        if let highlight = stats.highlightAchievement {
+            rows.append((l.achievementsTitle, l.achievementName(highlight)))
+        }
         if let favourite = stats.favouriteSpeciesID {
             rows.append((l.trainerFavourite, companion.speciesName(favourite)))
         }
@@ -895,7 +915,7 @@ final class PopoverWindow {
         for (label, value) in rows { Gtk.pack(statCard, trainerStatRow(label, value)) }
         Gtk.pack(page, statCard)
 
-        Gtk.pack(page, achievementsCard(l))
+        Gtk.pack(page, achievementsCard(l, earnedOnly: forExport))
 
         guard !forExport else { return }
         let export = gtk_button_new_with_label(l.trainerExport)!
@@ -963,7 +983,10 @@ final class PopoverWindow {
 
     /// Achievements, earned first. Locked ones stay visible and named — a hidden list gives the
     /// player nothing to aim at, and every one of these describes something they could go and do.
-    private func achievementsCard(_ l: L) -> Widget {
+    /// - Parameter earnedOnly: on the exported card, leave the locked ones out. In the app they are
+    ///   something to aim at; in a picture someone shares they are a published list of what that
+    ///   person has not done yet, and they double the height of the image.
+    private func achievementsCard(_ l: L, earnedOnly: Bool = false) -> Widget {
         let card = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 6)
         Gtk.addClass(card, "ptb-card")
         let earned = companion.earnedAchievements
@@ -979,6 +1002,7 @@ final class PopoverWindow {
         Gtk.pack(card, header)
 
         for achievement in earned { Gtk.pack(card, achievementRow(achievement, earned: true, l)) }
+        guard !earnedOnly else { return card }
         for achievement in companion.lockedAchievements {
             Gtk.pack(card, achievementRow(achievement, earned: false, l))
         }

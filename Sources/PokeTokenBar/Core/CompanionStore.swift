@@ -192,7 +192,7 @@ final class CompanionStore {
     // MARK: 트레이너 카드
 
     var trainerName: String? { state.trainerName }
-    var trainerStats: TrainerStats { TrainerCard.stats(state: state, now: clock()) }
+    var trainerStats: TrainerStats { TrainerCard.fullStats(state: state, now: clock()) }
 
     var earnedAchievements: [Achievement] { Achievements.earned(state: state, stats: trainerStats) }
     var lockedAchievements: [Achievement] { Achievements.locked(state: state, stats: trainerStats) }

@@ -220,7 +220,7 @@ Chronicle writes that life down.
 - [x] Cells keep a fixed width, so a filter leaving two species no longer stretches them to half the
       panel each
 
-### Phase G9 — Trainer Card  ✅ built, verified on screen
+### Phase G9 — Trainer Card  ✅ built, verified on screen (extended 2026-08-20)
 The Collection answers "what do I have". This answers "how far have I come" — and it is the first
 thing in the app that can leave the app.
 
@@ -241,6 +241,11 @@ thing in the app that can leave the app.
 - [x] A disguised Ditto's shiny does not count until it reveals itself
 - [x] Ties on "raised most" resolve deterministically, so the card does not change between openings
 - [x] Regression tests (11)
+- [x] The card carries the **companion's portrait** and one achievement. A page of figures with no
+      picture is a spreadsheet; the Pokémon is why any of the numbers mean anything
+- [x] The exported image lists **earned achievements only** — in the app the locked ones are
+      something to aim at, but in a picture someone shares they are a published list of what that
+      person has not done, and they doubled the image height
 - [ ] **macOS**: not wired. Stats and file naming are in Core and shared. **owner: Bernardo**.
 
 **Caught by an existing guard.** The first version read `XDG_PICTURES_DIR` directly and

@@ -104,6 +104,26 @@ final class TrainerCardTests: XCTestCase {
         XCTAssertEqual(TrainerCard.stats(state: state, now: now).daysJourneyed, 9)
     }
 
+    /// 대표 업적은 **달성한 것 중에서만** 뽑고, 순서가 고정돼야 한다 — 카드를 열 때마다 바뀌면
+    /// 공유한 이미지와 화면이 서로 다른 말을 하게 된다.
+    func testHighlightIsAnEarnedAchievementAndStable() async {
+        var state = CompanionState()
+        state.dex = [dex(1, 2, rarity: .legendary, shiny: true)]
+        let full = TrainerCard.fullStats(state: state, now: now)
+        let highlight = try? XCTUnwrap(full.highlightAchievement)
+        XCTAssertTrue(Achievements.earned(state: state, stats: full).contains(highlight!),
+                      "달성하지 않은 업적이 카드에 실렸다")
+        for _ in 0..<10 {
+            XCTAssertEqual(TrainerCard.fullStats(state: state, now: now).highlightAchievement,
+                           full.highlightAchievement)
+        }
+    }
+
+    /// 달성한 게 없으면 대표 업적도 없다 — 카드가 빈 줄을 그리지 않게.
+    func testNoHighlightOnAFreshSave() async {
+        XCTAssertNil(TrainerCard.fullStats(state: CompanionState(), now: now).highlightAchievement)
+    }
+
     /// 내보낸 파일 이름에 초 단위 시각이 들어가 **두 번 저장해도 첫 장을 안 덮어쓴다.**
     /// 이름 생성은 Core 에 있다 — Linux 뷰 안에 두면 이 계약을 테스트할 수 없다.
     func testExportFileNameIsUniquePerSecond() async {

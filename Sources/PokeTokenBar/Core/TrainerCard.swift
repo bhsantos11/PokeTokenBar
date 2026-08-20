@@ -24,6 +24,10 @@ struct TrainerStats: Sendable, Equatable {
     var favouriteSpeciesID: Int?
     /// 가장 희귀한 졸업 등급.
     var rarestGraduated: Rarity?
+    /// 카드에 실을 대표 업적 — 가장 **최근에** 달성한 것이 아니라 목록상 마지막 것이다.
+    /// 달성 시각을 저장하지 않기 때문이고(업적은 과거 기록 위의 질의라 시각이 없다), 목록 순서는
+    /// `Achievement.allCases` 로 고정돼 있어 카드가 열 때마다 바뀌지 않는다.
+    var highlightAchievement: Achievement?
 
     /// 도감 완성도(0…1) — 분모는 1~5세대 base 종 수가 아니라 **본 적 있는 종** 대비 졸업 종이다.
     /// 전체 종 수를 분모로 쓰면 649분의 5 같은 숫자가 나와 아무 의미가 없다.
@@ -45,6 +49,14 @@ enum TrainerCard {
         formatter.timeZone = TimeZone.current
         formatter.dateFormat = "yyyy-MM-dd-HHmmss"
         return "PokeTokenBar-Trainer-\(formatter.string(from: now)).png"
+    }
+
+    /// 업적까지 채운 통계. 업적 판정이 `TrainerStats` 를 필요로 해서 두 단계로 나뉜다 —
+    /// 한 번에 하려면 서로를 참조하는 순환이 생긴다.
+    static func fullStats(state: CompanionState, now: Date) -> TrainerStats {
+        var s = stats(state: state, now: now)
+        s.highlightAchievement = Achievements.earned(state: state, stats: s).last
+        return s
     }
 
     static func stats(state: CompanionState, now: Date) -> TrainerStats {
@@ -96,6 +108,7 @@ enum TrainerCard {
             spentTokens: state.spentTokens,
             daysJourneyed: days,
             favouriteSpeciesID: favourite,
-            rarestGraduated: rarest)
+            rarestGraduated: rarest,
+            highlightAchievement: nil)
     }
 }
