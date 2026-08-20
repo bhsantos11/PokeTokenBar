@@ -3,6 +3,18 @@ import XCTest
 
 // MARK: 상호작용 — 애칭 / 쓰다듬기
 
+/// 2단계 라인 — 임계를 넘긴 개체가 라인 로딩 직후 진화하게 만드는 프로바이더.
+private struct EvolvingLineProvider: PokeProviding {
+    func line(baseSpeciesID: Int) async throws -> EvoLine {
+        EvoLine(baseID: baseSpeciesID,
+                tree: EvoNode(speciesID: baseSpeciesID,
+                              children: [EvoNode(speciesID: baseSpeciesID + 1, children: [])]),
+                rarity: .common, names: [:])
+    }
+    func baseSpeciesIndex() async throws -> [BaseSpecies] { [] }
+    func baseSpecies(id: Int) async throws -> BaseSpecies? { nil }
+}
+
 private struct InteractionNoProvider: PokeProviding {
     func line(baseSpeciesID: Int) async throws -> EvoLine { throw URLError(.notConnectedToInternet) }
     func baseSpeciesIndex() async throws -> [BaseSpecies] { [] }
@@ -98,6 +110,37 @@ final class InteractionTests: XCTestCase {
         XCTAssertEqual(clean.active?.nickname?.count, CompanionStore.nicknameMaxLength)
         XCTAssertEqual(clean.boxed.first?.nickname?.count, CompanionStore.nicknameMaxLength,
                        "박스 개체도 같은 경계를 통과해야 한다")
+    }
+
+    /// [회귀] 폴 사이에 일어난 변화도 **즉시 알려야** 한다.
+    ///
+    /// Linux 앱은 사용량 폴(기본 2분)에서만 다시 그린다. 폴 *도중*에 일어난 일은 그 틱에 반영되지만,
+    /// 진화 라인이 뒤늦게 도착해 진화가 성립하는 경우처럼 폴 **사이**에 일어난 변화는 다음 폴까지
+    /// 화면에 안 나온다 — 이전 형태가 꽉 찬 진행 막대 아래 그대로 남는다(직접 겪었다).
+    func testCompanionEventFiresOutsideThePollForLateEvolutions() async {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("evt-\(UUID().uuidString).json")
+        // 임계를 이미 넘긴 개체 — 라인이 로딩되는 순간 진화가 성립한다.
+        // 1단계 임계(250M)는 넘고, 이월분이 2단계 임계(500M)에는 못 미치는 값 — 진화 한 번에서 멈춘다.
+        let mon = "{\"baseID\":10,\"pathIDs\":[10],\"stageIndex\":0,\"usedAtStage\":300000000,"
+            + "\"rarity\":\"common\",\"totalForms\":2}"
+        let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":1000,\"spentTokens\":0,"
+            + "\"lastDate\":\"d\",\"active\":\(mon)}"
+        try? json.data(using: .utf8)!.write(to: url)
+
+        let s = CompanionStore(provider: EvolvingLineProvider(), clock: { self.now },
+                               fileURL: url, rng: SeededRNG(seed: 8))
+        var events = 0
+        s.onCompanionEvent = { events += 1 }
+        // update() 는 라인 로딩을 **비동기로 예약만** 하고 즉시 돌아온다. 진화는 그 뒤 라인이 도착할 때
+        // 성립한다 — 즉 이 틱이 아니라 폴 사이다. 그 창을 재현하려고 update 이후에 기다린다.
+        s.update(todayTokensByProvider: ["t": 1], todayDate: "d", monthTotal: 0,
+                 burnTier: .idle, limitWarning: false, hasUsageData: true)
+        XCTAssertEqual(s.state.active?.stageIndex, 0, "update 시점엔 아직 라인이 없어 진화하지 않는다")
+        for _ in 0..<2000 where events == 0 { await Task.yield() }
+
+        XCTAssertGreaterThan(events, 0, "폴 없이 일어난 진화가 화면에 알려지지 않았다")
+        XCTAssertEqual(s.state.active?.stageIndex, 1, "실제로 진화했어야 한다")
     }
 
     // MARK: 쓰다듬기

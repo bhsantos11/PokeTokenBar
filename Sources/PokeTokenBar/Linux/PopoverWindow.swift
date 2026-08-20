@@ -457,14 +457,38 @@ final class PopoverWindow {
     private func buildShop(into page: Widget, _ l: L) {
         let wallet = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 2)
         Gtk.addClass(wallet, "ptb-card")
-        let caption = Gtk.label(Gtk.escape(l.shop))
+        // The wallet used to be a bare number under the word "Shop". A large figure with no label
+        // does not say whether it is what you earned or what you have left, and after a purchase it
+        // drops — which looks like the growth meter went backwards, though it never does.
+        let caption = Gtk.label(Gtk.escape(l.walletAvailable))
         Gtk.addClass(caption, "ptb-section")
         Gtk.pack(wallet, caption)
-        Gtk.pack(wallet, Gtk.label(
-            "<span size='large'><b>\(Gtk.escape(TokenFormatter.compact(companion.availableTokens)))</b></span>"))
-        let hint = Gtk.label("<span size='small'>\(Gtk.escape(l.shopHint))</span>", wrap: true)
-        Gtk.addClass(hint, "ptb-muted")
-        Gtk.pack(wallet, hint)
+        let amount = Gtk.label(
+            "<span size='large'><b>\(Gtk.escape(TokenFormatter.compact(companion.availableTokens)))</b></span>")
+        gtk_widget_set_tooltip_text(amount, TokenFormatter.grouped(companion.availableTokens))
+        Gtk.pack(wallet, amount)
+
+        let breakdownText = l.walletBreakdown(TokenFormatter.compact(companion.walletEarned),
+                                              TokenFormatter.compact(companion.walletSpent))
+        let breakdown = Gtk.label("<span size='small'>\(Gtk.escape(breakdownText))</span>", wrap: true)
+        Gtk.addClass(breakdown, "ptb-muted")
+        Gtk.pack(wallet, breakdown)
+
+        // What the balance actually means for the list below it: the best thing in reach, or how far
+        // off the cheapest thing is. Otherwise every visit starts by comparing prices by hand.
+        if let best = companion.bestAffordable {
+            let text = l.walletCanAfford(l.shopEntryName(best))
+            let line = Gtk.label("<span size='small'>\(Gtk.escape(text))</span>", wrap: true)
+            Gtk.addClass(line, "ptb-price")
+            Gtk.pack(wallet, line)
+        }
+        if let goal = companion.nextGoal {
+            let text = l.walletNextGoal(l.shopEntryName(goal.entry),
+                                        TokenFormatter.compact(goal.remaining))
+            let line = Gtk.label("<span size='small'>\(Gtk.escape(text))</span>", wrap: true)
+            Gtk.addClass(line, "ptb-muted")
+            Gtk.pack(wallet, line)
+        }
         Gtk.pack(page, wallet)
 
         for entry in companion.shopEntries {

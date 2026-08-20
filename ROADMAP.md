@@ -7,7 +7,7 @@ Two tracks, tracked in one file because they share the same Core.
   verification on a real panel rather than construction.
 - **Track B — Gameplay.** The game is currently monotonic: usage only goes up, nothing is ever at
   risk, and the only decision is which item to buy. These are the changes that give it choices,
-  rhythm and texture. **G1, G2, G3, G5–G11 are built** (Linux); G4 is still blocked on a design decision. Each carries a macOS gap, since that half cannot be built or verified on this machine.
+  rhythm and texture. **G1, G2, G3, G5–G12 are built** (Linux); G4 is still blocked on a design decision. Each carries a macOS gap, since that half cannot be built or verified on this machine.
 
 Everything below is **buildable** — the two genuinely impossible items (dragging the floating pet,
 anchoring the window to the tray icon) are Wayland restrictions and are recorded at the bottom
@@ -286,6 +286,21 @@ thing the player wanted to see — the change itself — was the thing the banne
       read "Evolved into Sprout!" — naming the thing that had not changed and omitting the one thing
       the message exists to announce. It now names the new form, taken from the Chronicle so it
       survives the 4s event window closing before the next repaint
+
+### Phase G12 — Immediate repaint, and a wallet that answers the question  ✅ built, verified
+- [x] **The panel repaints when the companion changes**, not on the next poll. Events during a poll
+      were already covered; ones that land *between* polls — an evolution that becomes possible only
+      when its evolution line finishes downloading, a Ditto reveal completing after its own fetch —
+      left the previous form on screen under a full progress bar for up to two minutes. I hit this
+      myself while testing the celebration banner
+- [x] Graduation now signals too; it has no `Celebration` case of its own but is just as visible
+- [x] Regression test drives the real between-polls window (update schedules the line load and
+      returns; the evolution happens later), with the defect injected and confirmed failing
+- [x] **Shop wallet reworked.** It was a bare figure under the word "Shop", which does not say
+      whether it is what you earned or what you have left — and it drops after a purchase, which
+      reads as the growth meter going backwards, though that never happens. It now shows available,
+      the earned/spent split, the dearest thing in reach, and how far off the cheapest thing is
+- [x] Regression tests (6) for the wallet, including that buying never reduces lifetime tokens
 
 ### Phase G4 — Trade cards
 `SaveTransfer` already exports, imports, summarises, confirms and sanitises a whole save. A

@@ -829,6 +829,26 @@ struct L {
     var notEnoughTokens: String { t("토큰이 부족해요", "Not enough tokens", "トークンが足りません", "No tienes suficientes tokens") }
     func ownedCount(_ n: Int) -> String { t("보유 ×\(n)", "Owned ×\(n)", "所持 ×\(n)", "En posesión ×\(n)") }
     var shopPriceLabel: String { t("가격", "Price", "価格", "Precio") }
+    var walletAvailable: String { t("쓸 수 있는 토큰", "Available to spend", "使えるトークン", "Disponible para gastar") }
+    /// 잔액의 출처를 한 줄로. 구매해도 성장 미터는 안 줄어든다는 점이 여기서 읽혀야 한다.
+    func walletBreakdown(_ earned: String, _ spent: String) -> String {
+        t("누적 \(earned) · 사용 \(spent)", "\(earned) earned · \(spent) spent",
+          "累計 \(earned) · 使用 \(spent)", "\(earned) ganados · \(spent) gastados")
+    }
+    func walletCanAfford(_ item: String) -> String {
+        t("지금 \(item)까지 살 수 있어요", "You can afford the \(item)",
+          "いま \(item) まで買えます", "Puedes permitirte \(item)")
+    }
+    func walletNextGoal(_ item: String, _ remaining: String) -> String {
+        t("\(item)까지 \(remaining) 남았어요", "\(remaining) to go for the \(item)",
+          "\(item) まであと \(remaining)", "Faltan \(remaining) para \(item)")
+    }
+    func shopEntryName(_ entry: ShopEntry) -> String {
+        switch entry {
+        case .item(let kind): return itemName(kind)
+        case .egg(let tier):  return eggName(tier)
+        }
+    }
     var ownedAlready: String { t("보유 중", "Owned", "所持済み", "En posesión") }
     var shinyCharmEffectHint: String { t("이로치 확률 ↑ · 적용 중", "Shiny rate ↑ · active", "色違い率↑ · 適用中", "Prob. variocolor ↑ · activo") }
     // 알 (리롤) — tier = 보증 등급 하한(nil = 보증 없는 기본 알).

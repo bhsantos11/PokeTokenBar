@@ -19,7 +19,20 @@ final class CompanionStore {
     enum Celebration: Equatable { case hatch(shiny: Bool), evolve, dittoReveal(shiny: Bool) }
     private(set) var celebration: Celebration?
     private(set) var celebrationSeq = 0
-    private func fireCelebration(_ c: Celebration) { celebration = c; celebrationSeq += 1 }
+    private func fireCelebration(_ c: Celebration) {
+        celebration = c
+        celebrationSeq += 1
+        onCompanionEvent?()
+    }
+
+    /// Something visibly happened to the companion — hatch, evolution, Ditto reveal, graduation.
+    ///
+    /// The Linux app repaints on its usage poll, which is every two minutes by default. That covers
+    /// events that happen *during* a poll, but not the ones that land between them: an evolution
+    /// triggered when the evolution line finally downloads, or a Ditto reveal completing after its
+    /// own fetch. Those left the panel showing the previous form under a full progress bar until the
+    /// next poll happened along. The frontends set this to repaint immediately.
+    var onCompanionEvent: (() -> Void)?
     /// 연출 재생 후 UI 가 호출(1회성 보장).
     func consumeCelebration() { celebration = nil }
 
@@ -803,6 +816,9 @@ final class CompanionStore {
                                           a.pathIDs.compactMap { id in line.names[id].map { (id, $0) } })
                                   }))
         chronicle(.graduated, mon: a)
+        // Graduation has no `Celebration` case of its own (the popover shows `justGraduated`), but it
+        // is still a visible change and must repaint for the same reason the others do.
+        onCompanionEvent?()
         let name = currentLine?.localizedName(finalID, state.language) ?? ""
         justGraduated = name
         notifyCompanionEvent(l.notifGraduateTitle, l.notifGraduateBody(name))
@@ -893,6 +909,24 @@ final class CompanionStore {
     /// 상점에서 쓸 수 있는 토큰(재화) = 실사용 누적 − 상점 지출 누적. 성장 미터(usedSinceInstall)는
     /// 여기선 읽기만 — 구매는 spentTokens 만 올려 잔액을 깎는다(진화 진행·오늘/주/월 통계 무영향).
     var availableTokens: Int { max(0, state.usedSinceInstall - state.spentTokens) }
+
+    /// 지갑 요약 — 잔액이 어디서 왔는지. 큰 숫자 하나만 보여 주면 그게 "번 것"인지 "남은 것"인지
+    /// 알 수 없고, 무언가를 산 뒤 숫자가 줄면 성장까지 되감긴 것처럼 보인다(실제로는 안 줄어든다).
+    var walletEarned: Int { state.usedSinceInstall }
+    var walletSpent: Int { state.spentTokens }
+
+    /// 지금 잔액으로 살 수 있는 것 중 **가장 비싼 것**, 그리고 못 사는 것 중 **가장 싼 것**.
+    ///
+    /// 목록을 훑어 값을 비교하는 일을 사람에게 시키지 않으려는 것이다 — 상점의 실제 질문은
+    /// "지금 뭘 할 수 있나"와 "다음 목표가 얼마나 남았나" 두 개뿐이다.
+    var bestAffordable: ShopEntry? {
+        shopEntries.filter { $0.price <= availableTokens }.max { $0.price < $1.price }
+    }
+    var nextGoal: (entry: ShopEntry, remaining: Int)? {
+        guard let cheapest = shopEntries.filter({ $0.price > availableTokens })
+            .min(by: { $0.price < $1.price }) else { return nil }
+        return (cheapest, cheapest.price - availableTokens)
+    }
 
     /// 상점 판매 아이템 — shopPrice 있는 것만. 가격 저렴한 순, 단 구매 완료한 보유형은 맨 아래로.
     var purchasableItems: [ItemKind] {

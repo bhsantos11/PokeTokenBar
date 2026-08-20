@@ -180,6 +180,9 @@ final class App {
             popover?.show()
             if let tab { popover?.select(tab) }
         }
+        // Repaint as soon as the companion changes, not on the next poll — an evolution that lands
+        // when its line finishes downloading would otherwise sit unseen for up to two minutes.
+        companion.onCompanionEvent = { [weak self] in self?.repaintForCompanionEvent() }
         // One check at startup, as macOS does; Settings offers an explicit re-check.
         Task { @MainActor in await updater.check() }
         Task { @MainActor in await refresh() }
@@ -247,6 +250,19 @@ final class App {
         syncFloatingPet()
         // Only rebuilds when the window is actually up (see PopoverWindow.refresh).
         await popover?.loadSpritesAndRefresh()
+    }
+
+    /// Repaint everything the companion appears on, outside the usage poll.
+    ///
+    /// Sprite loading is async because a brand-new form's image is fetched after the evolution that
+    /// produced it; the panel draws what it has and fills in when it arrives.
+    private func repaintForCompanionEvent() {
+        applyState()
+        syncFloatingPet()
+        Task { @MainActor in
+            await self.updateIcon()
+            await self.popover?.loadSpritesAndRefresh()
+        }
     }
 
     private func schedulePolling() {
