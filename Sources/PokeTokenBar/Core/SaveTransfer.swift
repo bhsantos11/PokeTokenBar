@@ -9,6 +9,7 @@ import Foundation
 /// 봉투의 `format`/`schema` 는 관대 디코딩 대상이 아니라(기본값 없음) 이 오인을 먼저 차단한다.
 struct SaveEnvelope: Codable, Sendable {
     static let formatID = "poketokenbar.save"
+    /// 4 = 여정 시작일().
     /// 3 = 애칭(`nickname`)·일지(`chronicle`)·트레이너 이름·업적·마지막 열람 시각이 들어간 버전.
     /// 2 = 박스(`boxed`)·보류된 알(`heldEgg`)이 상태에 들어간 버전.
     ///
@@ -20,7 +21,7 @@ struct SaveEnvelope: Codable, Sendable {
     /// 모르는 키를 무시한 뒤, 다음 저장에서 박스와 보류된 알을 통째로 날린다(에러 없이). 버전을 올리면
     /// 구버전은 `newerSchema` 로 거절한다 — "못 읽는다"가 "읽고 지웠다"보다 낫다.
     /// 새 버전이 v1 세이브를 읽는 방향은 그대로다(`header.schema <= schemaVersion`, 없는 키는 기본값).
-    static let schemaVersion = 3
+    static let schemaVersion = 4
 
     var format: String
     var schema: Int

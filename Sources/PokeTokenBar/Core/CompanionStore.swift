@@ -185,6 +185,9 @@ final class CompanionStore {
                                    isShiny: mon.map(Self.displayShiny) ?? false,
                                    hour: Calendar.current.component(.hour, from: at))
         state.chronicle = Chronicle.appending(entry, to: state.chronicle)
+        // 여정의 시작은 **첫 사건이 일어난 날**이고, 그 뒤로 움직이지 않는다. 일지에서 매번 계산하면
+        // 상한(200)이 시작점을 밀어내는 순간 여정이 짧아진다 — 오래 쓸수록 신참이 되는 셈이다.
+        if state.journeyStartedAt == nil { state.journeyStartedAt = at }
     }
 
     var chronicleEntries: [ChronicleEntry] { state.chronicle }

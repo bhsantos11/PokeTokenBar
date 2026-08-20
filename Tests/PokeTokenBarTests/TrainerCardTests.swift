@@ -104,6 +104,26 @@ final class TrainerCardTests: XCTestCase {
         XCTAssertEqual(TrainerCard.stats(state: state, now: now).daysJourneyed, 9)
     }
 
+    /// [회귀 — Codex 리뷰] 여정 길이는 **일지가 잘려도 줄어들지 않는다.**
+    ///
+    /// 가장 오래된 항목에서 계산하면 200개 상한이 시작점을 밀어내는 순간 "여정 3일째"가 된다 —
+    /// 오래 쓴 사람일수록 신참이 되는 셈이다. 시작일은 한 번 적고 움직이지 않는다.
+    func testJourneyLengthSurvivesChronicleEviction() async {
+        var state = CompanionState()
+        state.journeyStartedAt = now.addingTimeInterval(-86_400 * 90)
+        // 일지에는 최근 것만 남아 있다(오래된 것은 상한에 밀렸다).
+        state.chronicle = [ChronicleEntry(at: now.addingTimeInterval(-3600), kind: .hatched, speciesID: 1)]
+        XCTAssertEqual(TrainerCard.stats(state: state, now: now).daysJourneyed, 90,
+                       "일지가 잘렸다고 여정이 짧아졌다")
+    }
+
+    /// 시작일이 없는(이 필드보다 오래된) 세이브는 남은 일지로 한 번 추정한다 — 없다고 0일로 만들지 않는다.
+    func testOlderSavesFallBackToTheChronicleForTheStart() async {
+        var state = CompanionState()
+        state.chronicle = [ChronicleEntry(at: now.addingTimeInterval(-86_400 * 5), kind: .hatched, speciesID: 1)]
+        XCTAssertEqual(TrainerCard.stats(state: state, now: now).daysJourneyed, 5)
+    }
+
     /// 대표 업적은 **달성한 것 중에서만** 뽑고, 순서가 고정돼야 한다 — 카드를 열 때마다 바뀌면
     /// 공유한 이미지와 화면이 서로 다른 말을 하게 된다.
     func testHighlightIsAnEarnedAchievementAndStable() async {

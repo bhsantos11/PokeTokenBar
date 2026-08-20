@@ -87,10 +87,12 @@ enum TrainerCard {
             }
         }
 
-        // 여정 길이는 일지의 가장 오래된 사건부터 — 설치일이 아니라 **첫 사건**이 시작이다.
-        // 일지가 없는(구버전) 세이브는 nil 이고, 화면이 그 줄을 생략한다.
-        let days = state.chronicle.map(\.at).min().map { start in
-            max(0, Calendar.current.dateComponents([.day], from: start, to: now).day ?? 0)
+        // 여정 길이는 **기록해 둔 시작일**부터다. 일지의 가장 오래된 항목에서 계산하면 상한이
+        // 시작점을 밀어내는 순간 여정이 짧아진다. 시작일이 없는(이 필드보다 오래된) 세이브는 남아
+        // 있는 일지의 최솟값으로 한 번 추정하고, 그 값이 그때부터 기록으로 굳는다.
+        let start = state.journeyStartedAt ?? state.chronicle.map(\.at).min()
+        let days = start.map { begin in
+            max(0, Calendar.current.dateComponents([.day], from: begin, to: now).day ?? 0)
         }
 
         let favourite = finalCounts.max { a, b in

@@ -602,6 +602,11 @@ struct CompanionState: Codable, Sendable {
     /// 아무것도 달성하지 않은** 세이브를 구별한다 — 둘 다 `earnedAchievements` 가 비어 있어서
     /// 그것만으로는 신규 사용자의 첫 업적이 시드로 오인돼 삼켜졌다.
     var achievementsSeeded = false
+    /// 여정이 시작된 날 — 첫 사건이 기록된 시각. **한 번 정해지면 움직이지 않는다.**
+    ///
+    /// 일지의 가장 오래된 항목에서 계산하면 200개 상한이 시작점을 밀어내는 순간 여정이 짧아진다.
+    /// 오래 쓴 사람일수록 "여정 3일째"가 되는 셈이라, 사실을 한 번만 적어 두고 다시 계산하지 않는다.
+    var journeyStartedAt: Date?
     // 도감
     var dex: [DexEntry] = []
     // 소유한 (base,final) 쌍 — 분기 다양성용
@@ -656,6 +661,7 @@ struct CompanionState: Codable, Sendable {
         earnedAchievements = c.lenient(Set<String>.self, forKey: .earnedAchievements, default: [])
         lastOpenedAt       = c.lenientOptional(Date.self, forKey: .lastOpenedAt)
         achievementsSeeded = c.lenient(Bool.self, forKey: .achievementsSeeded, default: false)
+        journeyStartedAt   = c.lenientOptional(Date.self, forKey: .journeyStartedAt)
         collectedFinals    = c.lenient(Set<String>.self, forKey: .collectedFinals, default: [])
         language           = c.lenient(AppLanguage.self, forKey: .language, default: .systemDefault)
         inventory          = c.lenient([String: Int].self, forKey: .inventory, default: [:])

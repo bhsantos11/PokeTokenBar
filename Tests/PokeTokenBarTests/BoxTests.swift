@@ -220,9 +220,9 @@ final class BoxTests: XCTestCase {
     /// 일어난 일이라(2 에서 멈춘 사이 다섯 개가 추가됐다), 막아야 하는 건 그 조합이다.
     func testSaveSchemaIsBumpedWheneverStateGainsFields() async {
         let fieldCount = Mirror(reflecting: CompanionState()).children.count
-        XCTAssertEqual(SaveEnvelope.schemaVersion, 3,
+        XCTAssertEqual(SaveEnvelope.schemaVersion, 4,
                        "필드를 더했으면 스키마도 올려라 — 안 올리면 구버전이 조용히 날린다")
-        XCTAssertEqual(fieldCount, 22,
+        XCTAssertEqual(fieldCount, 23,
                        "CompanionState 필드 수가 바뀌었다. 저장에 남는 필드를 더했다면 "
                        + "SaveEnvelope.schemaVersion 을 올리고 이 숫자도 갱신하라 — 안 올리면 그 사이 "
                        + "버전의 앱이 모르는 키를 무시한 뒤 다음 저장에서 통째로 날린다.")
