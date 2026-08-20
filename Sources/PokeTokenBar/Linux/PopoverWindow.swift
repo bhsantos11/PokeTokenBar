@@ -165,7 +165,6 @@ final class PopoverWindow {
 
     func toggle() { isVisible ? hide() : show() }
 
-    /// Switch tabs programmatically. Used by `--window <tab>`; the switcher drives it otherwise.
     /// Keyboard access to the panel: Ctrl+1…5 for the tabs, Escape to close.
     ///
     /// Five tabs and, until now, no way to reach any of them without the mouse. Someone who works in
@@ -215,12 +214,19 @@ final class PopoverWindow {
                                  .map { String(cString: $0) }
                              guard name != self.lastVisibleTab else { return }
                              self.lastVisibleTab = name
-                             let hadTransientState = self.pendingConfirm != nil || self.selectedSpecies != nil
+                             let hadTransientState = self.pendingConfirm != nil
+                                 || self.selectedSpecies != nil
+                                 || self.renamingCompanion || self.renamingTrainer
                              self.pendingConfirm = nil
                              // Coming back to the Pokédex should land on the grid, not on whatever
                              // cell was open several tabs ago; the Chronicle should land on today.
                              self.selectedSpecies = nil
                              self.chroniclePage = 0
+                             // Leaving a tab cancels an open rename. The typed text lives in a widget
+                             // the rebuild destroys, so keeping the flag set would bring the editor
+                             // back apparently open but empty of whatever was being typed.
+                             self.renamingCompanion = false
+                             self.renamingTrainer = false
                              // The tab being revealed may not have been rebuilt since the last poll.
                              let tab = self.visibleTab
                              if hadTransientState || self.staleTabs.contains(tab) { self.rebuild(tab) }
@@ -231,9 +237,16 @@ final class PopoverWindow {
     /// from a real tab change.
     private var lastVisibleTab: String?
 
+    /// Switch tabs programmatically. Used by `--window <tab>` and the keyboard shortcuts; the
+    /// switcher drives it otherwise.
     func select(_ tab: PopoverTab) {
+        let alreadyThere = visibleTab == tab
         pendingConfirm = nil
         gtk_stack_set_visible_child_name(asStack(stack), tab.identifier)
+        // Selecting the tab you are already on emits no `notify::visible-child`, so nothing would
+        // rebuild — leaving an armed confirmation drawn on screen with a Confirm button that now
+        // does nothing. Rebuild explicitly in that case.
+        if alreadyThere { rebuild(tab) }
     }
 
     /// Older saves have dex entries without stored species names; fill them once per session.
@@ -1171,9 +1184,10 @@ final class PopoverWindow {
             return
         }
         let pageCount = max(1, (entries.count + Self.chronicleLimit - 1) / Self.chronicleLimit)
-        // Entries only ever get added at the front, so a page index can outrun the list after a
-        // reload with a shorter history; clamp rather than draw an empty page.
-        chroniclePage = min(chroniclePage, pageCount - 1)
+        // Clamp **both** ends. The index can outrun the list after a reload with a shorter history,
+        // and it can go negative: leaving the tab resets it to 0 while the old page stays drawn, so
+        // its Previous button decrements from the reset value and the slice start goes below zero.
+        chroniclePage = min(max(0, chroniclePage), pageCount - 1)
         let start = chroniclePage * Self.chronicleLimit
         let visible = Array(entries[start..<min(start + Self.chronicleLimit, entries.count)])
 
@@ -1198,7 +1212,9 @@ final class PopoverWindow {
         // "‹" walks towards the present, "›" towards the past — the list is newest-first, so the
         // arrows read as moving through time rather than through a list.
         Gtk.pack(pager, pagerButton("‹", enabled: chroniclePage > 0) { [weak self] in
-            self?.chroniclePage -= 1; self?.refresh()
+            guard let self else { return }
+            self.chroniclePage = max(0, self.chroniclePage - 1)
+            self.refresh()
         })
         let label = Gtk.label(
             "<span size='small'>\(Gtk.escape(l.dexPageLabel(chroniclePage + 1, pageCount)))</span>")
@@ -1330,7 +1346,9 @@ final class PopoverWindow {
         if armedStep(for: .release(index)) != nil {
             Gtk.pack(row, confirmControls(label: l.boxRelease, destructive: true, l) { [weak self] in
                 guard let self, self.advanceConfirm(.release(index)) else { return }
-                _ = self.companion.release(at: index)
+                // `mon` was captured when the row was drawn; if the Box changed since, this refuses
+                // rather than releasing whoever now sits at that index.
+                _ = self.companion.release(at: index, expecting: mon)
                 Task { @MainActor in await self.loadSpritesAndRefresh() }
             })
             return row

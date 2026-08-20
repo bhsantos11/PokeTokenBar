@@ -243,18 +243,36 @@ final class BoxTests: XCTestCase {
     /// 놓아주면 박스에서 사라지고 **일지에는 남는다** — 함께 있었다는 사실까지 지우지는 않는다.
     func testReleaseRemovesFromTheBoxButKeepsTheRecord() async {
         let s = store(boxed: [monJSON(25, grown: 7), monJSON(100, grown: 9)])
-        XCTAssertTrue(s.release(at: 0))
+        XCTAssertTrue(s.release(at: 0, expecting: nil))
         XCTAssertEqual(s.state.boxed.map(\.baseID), [100], "고른 개체만 사라져야 한다")
         XCTAssertEqual(s.chronicleEntries.first?.kind, .released)
         XCTAssertEqual(s.chronicleEntries.first?.speciesID, 25)
+    }
+
+    /// [P1 회귀 — Codex 리뷰] **인덱스는 신원이 아니다.**
+    ///
+    /// 확인 창이 떠 있는 동안 박스가 바뀔 수 있다(세이브 불러오기는 통째로 뒤바꾼다). 그때 확인을
+    /// 누르면 그 자리에 밀려 들어온 **다른 개체**가 놓아진다 — 되돌릴 수 없는 동작에서 "인덱스가
+    /// 범위 안"은 근거가 못 된다.
+    func testReleaseRefusesWhenTheOccupantChanged() async {
+        let s = store(boxed: [monJSON(25), monJSON(100)])
+        let intended = s.state.boxed[0]                      // 확인 창을 띄운 시점의 개체
+        // 그 사이 박스가 뒤바뀐다(불러오기 등).
+        let s2 = store(boxed: [monJSON(133), monJSON(100)])
+        XCTAssertFalse(s2.release(at: 0, expecting: intended),
+                       "다른 개체가 그 자리에 있는데 놓아줬다")
+        XCTAssertEqual(s2.state.boxed.count, 2)
+        // 같은 개체면 정상 동작한다.
+        XCTAssertTrue(s.release(at: 0, expecting: intended))
+        XCTAssertEqual(s.state.boxed.map(\.baseID), [100])
     }
 
     /// 범위 밖 인덱스는 조용히 거절한다 — 목록이 바뀐 뒤 늦게 도착한 클릭이 **엉뚱한 개체를 놓아주면**
     /// 그건 되돌릴 수 없는 사고다.
     func testReleaseRejectsAnOutOfRangeIndex() async {
         let s = store(boxed: [monJSON(25)])
-        XCTAssertFalse(s.release(at: 5))
-        XCTAssertFalse(s.release(at: -1))
+        XCTAssertFalse(s.release(at: 5, expecting: nil))
+        XCTAssertFalse(s.release(at: -1, expecting: nil))
         XCTAssertEqual(s.state.boxed.count, 1)
     }
 
@@ -263,7 +281,7 @@ final class BoxTests: XCTestCase {
         let s = store(boxed: [monJSON(25)])
         let activeBefore = s.state.active?.baseID
         let dexBefore = s.state.dex.count
-        XCTAssertTrue(s.release(at: 0))
+        XCTAssertTrue(s.release(at: 0, expecting: nil))
         XCTAssertEqual(s.state.active?.baseID, activeBefore)
         XCTAssertEqual(s.state.dex.count, dexBefore)
     }
@@ -273,7 +291,7 @@ final class BoxTests: XCTestCase {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("box-release-\(UUID().uuidString).json")
         let s = store(boxed: [monJSON(25), monJSON(100)], url: url)
-        XCTAssertTrue(s.release(at: 0))
+        XCTAssertTrue(s.release(at: 0, expecting: nil))
         let reloaded = CompanionStore(provider: BoxNoProvider(), clock: { self.now },
                                       fileURL: url, rng: SeededRNG(seed: 7))
         XCTAssertEqual(reloaded.state.boxed.map(\.baseID), [100])

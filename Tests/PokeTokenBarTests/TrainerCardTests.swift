@@ -3,6 +3,13 @@ import XCTest
 
 // MARK: 트레이너 카드 — 여정 요약 수치
 
+private struct TrainerNoProvider: PokeProviding {
+    func line(baseSpeciesID: Int) async throws -> EvoLine { throw URLError(.notConnectedToInternet) }
+    func baseSpeciesIndex() async throws -> [BaseSpecies] { [] }
+    func baseSpecies(id: Int) async throws -> BaseSpecies? { nil }
+}
+
+@MainActor
 final class TrainerCardTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_700_000_000)
 
@@ -115,6 +122,30 @@ final class TrainerCardTests: XCTestCase {
         state.chronicle = [ChronicleEntry(at: now.addingTimeInterval(-3600), kind: .hatched, speciesID: 1)]
         XCTAssertEqual(TrainerCard.stats(state: state, now: now).daysJourneyed, 90,
                        "일지가 잘렸다고 여정이 짧아졌다")
+    }
+
+    /// [P1 회귀 — Codex 리뷰] 업그레이드 뒤 **첫 사건이 여정을 0일로 되돌리면 안 된다.**
+    ///
+    /// 이 필드가 없던 세이브에 새 사건이 기록될 때 그 시각을 시작일로 적으면, 몇 달을 키운 사람의
+    /// 여정이 다음 진화 한 번에 "1일째"가 된다. 이미 남아 있는 가장 오래된 기록을 시작으로 잡는다.
+    func testFirstEventAfterUpgradeDoesNotResetAnEstablishedJourney() async {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("journey-\(UUID().uuidString).json")
+        let old = now.addingTimeInterval(-86_400 * 40).timeIntervalSinceReferenceDate
+        // journeyStartedAt 없음 = 이 필드보다 오래된 세이브. 일지에는 40일 전 기록이 있다.
+        let entry = "{\"id\":\"old\",\"at\":\(old),\"kind\":\"hatched\",\"speciesID\":1,\"isShiny\":false}"
+        let mon = "{\"baseID\":10,\"pathIDs\":[10],\"stageIndex\":0,\"usedAtStage\":1,"
+            + "\"rarity\":\"common\",\"totalForms\":2}"
+        let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":1000,\"spentTokens\":0,"
+            + "\"lastDate\":\"d\",\"active\":\(mon),\"chronicle\":[\(entry)]}"
+        try? json.data(using: .utf8)!.write(to: url)
+        let s = CompanionStore(provider: TrainerNoProvider(), clock: { self.now },
+                               fileURL: url, rng: SeededRNG(seed: 5))
+        XCTAssertNil(s.state.journeyStartedAt)
+
+        s.setNickname("Sprout")   // 업그레이드 뒤 첫 사건
+
+        XCTAssertEqual(s.trainerStats.daysJourneyed, 40, "첫 사건이 여정을 처음으로 되돌렸다")
     }
 
     /// 시작일이 없는(이 필드보다 오래된) 세이브는 남은 일지로 한 번 추정한다 — 없다고 0일로 만들지 않는다.

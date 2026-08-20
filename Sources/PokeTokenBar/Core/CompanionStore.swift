@@ -187,7 +187,13 @@ final class CompanionStore {
         state.chronicle = Chronicle.appending(entry, to: state.chronicle)
         // 여정의 시작은 **첫 사건이 일어난 날**이고, 그 뒤로 움직이지 않는다. 일지에서 매번 계산하면
         // 상한(200)이 시작점을 밀어내는 순간 여정이 짧아진다 — 오래 쓸수록 신참이 되는 셈이다.
-        if state.journeyStartedAt == nil { state.journeyStartedAt = at }
+        // Stamping `at` here would reset an established journey to day zero on the first event
+        // after upgrading, because a save from before this field has no start recorded. Take the
+        // oldest event still on record instead — the entry just prepended is included, so a genuinely
+        // new save gets `at` anyway.
+        if state.journeyStartedAt == nil {
+            state.journeyStartedAt = state.chronicle.map(\.at).min() ?? at
+        }
     }
 
     var chronicleEntries: [ChronicleEntry] { state.chronicle }
@@ -1147,9 +1153,16 @@ final class CompanionStore {
     ///
     /// 폐기와 다른 점은 **사용자가 그 개체를 골라서, 확인을 거쳐** 한다는 것이다 — 2026-08-19 의
     /// 사고는 고르지도 확인하지도 않은 폐기였다. 일지에는 남는다: 함께 있었다는 사실까지 지우지는 않는다.
+    /// - Parameter expecting: the individual the caller believes is at `index`.
+    ///
+    /// An index alone is not an identity. The confirmation sits on screen while the Box can change
+    /// underneath it — importing a save reorders it wholesale — and confirming would then release
+    /// whoever had slid into that position. For an action with no undo, "the index is in range" is
+    /// not enough; it has to be the same Pokémon.
     @discardableResult
-    func release(at index: Int) -> Bool {
+    func release(at index: Int, expecting: MonState?) -> Bool {
         guard state.boxed.indices.contains(index) else { return false }
+        if let expecting, state.boxed[index] != expecting { return false }
         let released = state.boxed.remove(at: index)
         chronicle(.released, mon: released)
         AppLog.write("box: released base=\(released.baseID) boxCount=\(state.boxed.count)")
