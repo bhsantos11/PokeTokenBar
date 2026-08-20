@@ -189,6 +189,21 @@ final class CompanionStore {
 
     var chronicleEntries: [ChronicleEntry] { state.chronicle }
 
+    // MARK: 없는 동안 있었던 일
+
+    /// 화면에 보여 줄 요약. `markPanelOpened()` 가 기준점을 옮기기 전에 읽어야 한다.
+    private(set) var awaySummary = AwaySummary()
+
+    /// 패널이 열렸다 — 요약을 확정하고 기준점을 지금으로 옮긴다.
+    ///
+    /// 요약을 **먼저 확정**하는 순서가 중요하다. 기준점을 먼저 옮기면 방금 놓친 사건들이 요약에서
+    /// 사라져, 여는 순간 항상 "아무 일도 없었음"이 된다.
+    func markPanelOpened() {
+        awaySummary = Away.summary(chronicle: state.chronicle, since: state.lastOpenedAt)
+        state.lastOpenedAt = clock()
+        save()
+    }
+
     // MARK: 트레이너 카드
 
     var trainerName: String? { state.trainerName }

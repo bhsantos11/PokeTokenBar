@@ -195,6 +195,8 @@ final class PopoverWindow {
 
     func show() {
         isVisible = true
+        // Freeze what was missed before the reference point moves; `refresh()` below renders it.
+        companion.markPanelOpened()
         if !didBackfillDexNames {
             didBackfillDexNames = true
             Task { @MainActor in
@@ -1536,6 +1538,7 @@ final class PopoverWindow {
     private func buildHome(into page: Widget) {
         let l = companion.l
         if let celebration = activeCelebration { Gtk.pack(page, celebrationBanner(celebration)) }
+        if let away = awayCard(companion.l) { Gtk.pack(page, away) }
         for banner in providerStatusBanners() { Gtk.pack(page, banner) }
         Gtk.pack(page, companionCard(l))
         Gtk.pack(page, totalsCard(l))
@@ -1744,6 +1747,47 @@ final class PopoverWindow {
         Gtk.addClass(hintLabel, "ptb-muted")
         Gtk.pack(row, hintLabel)
         return row
+    }
+
+    /// What happened since the panel was last open.
+    ///
+    /// The Chronicle has always known, but nothing surfaced it: a pet that evolves while you work
+    /// does so unwitnessed, and opening the panel showed only the end state. nil when nothing
+    /// happened, so the card never says "nothing happened" — that is not worth a card.
+    private func awayCard(_ l: L) -> Widget? {
+        let away = companion.awaySummary
+        guard !away.isEmpty else { return nil }
+        let card = Gtk.box(GTK_ORIENTATION_HORIZONTAL, spacing: 10)
+        Gtk.addClass(card, "ptb-card")
+
+        if let headline = away.headline, let id = headline.speciesID,
+           let image = spriteImage("\(id)-\(headline.isShiny)", size: 32)
+            ?? spriteImage("\(id)-false", size: 32) {
+            gtk_widget_set_valign(image, GTK_ALIGN_CENTER)
+            Gtk.pack(card, image)
+        }
+        let text = Gtk.box(GTK_ORIENTATION_VERTICAL, spacing: 1)
+        gtk_widget_set_valign(text, GTK_ALIGN_CENTER)
+        let title = Gtk.label("<span size='small'>\(Gtk.escape(l.awayTitle))</span>")
+        Gtk.addClass(title, "ptb-section")
+        gtk_widget_set_halign(title, GTK_ALIGN_START)
+        Gtk.pack(text, title)
+        // The counts, then the single most notable event in the Chronicle's own words — the numbers
+        // say how much, the sentence says what it felt like.
+        let counts = l.awayCounts(hatched: away.hatched, evolved: away.evolved,
+                                  graduated: away.graduated, shinies: away.shinies)
+        let countsLabel = Gtk.label("<span size='small'><b>\(Gtk.escape(counts))</b></span>", wrap: true)
+        gtk_widget_set_halign(countsLabel, GTK_ALIGN_START)
+        Gtk.pack(text, countsLabel)
+        if let headline = away.headline {
+            let line = Gtk.label(
+                "<span size='small'>\(Gtk.escape(companion.chronicleLine(headline)))</span>", wrap: true)
+            Gtk.addClass(line, "ptb-muted")
+            gtk_widget_set_halign(line, GTK_ALIGN_START)
+            Gtk.pack(text, line)
+        }
+        Gtk.pack(card, text, expand: true)
+        return card
     }
 
     /// A row per provider currently reporting an incident.

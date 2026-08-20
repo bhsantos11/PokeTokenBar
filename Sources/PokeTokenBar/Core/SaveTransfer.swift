@@ -235,6 +235,9 @@ enum SaveTransfer {
                                      hasUsageData: Bool) -> CompanionState {
         var state = imported
         state.language = current.language
+        // 마지막으로 연 시각은 **이 기기에서 내가 언제 봤나**이지 진행이 아니다. 남의 기기 시각을
+        // 들여오면 "그동안 있었던 일"이 내가 실제로 놓친 구간과 다른 구간을 요약한다.
+        state.lastOpenedAt = current.lastOpenedAt
         state.candyGrantTier = mergedGrantTier(imported.candyGrantTier, current.candyGrantTier)
         state.candyFeatureSeeded = imported.candyFeatureSeeded || current.candyFeatureSeeded
         let hasCurrentProviderData = hasUsageData && !todayTokensByProvider.isEmpty

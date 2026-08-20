@@ -595,6 +595,9 @@ struct CompanionState: Codable, Sendable {
     /// 이미 축하 연출을 띄운 업적 id. 달성 여부 자체는 상태에서 매번 다시 계산하므로 이 집합은
     /// **"알렸는가"** 만 기억한다 — 달성 사실의 두 번째 진실을 만들지 않기 위해서다.
     var earnedAchievements: Set<String> = []
+    /// 패널을 마지막으로 연 시각 — "없는 동안 있었던 일" 요약의 기준점.
+    /// 처음 여는 경우 nil 이고, 그때는 요약을 만들지 않는다(전체 이력을 "그동안"으로 부를 수 없다).
+    var lastOpenedAt: Date?
     // 도감
     var dex: [DexEntry] = []
     // 소유한 (base,final) 쌍 — 분기 다양성용
@@ -647,6 +650,7 @@ struct CompanionState: Codable, Sendable {
         // 관대 디코딩 — 타입이 어긋나도 이름 하나 때문에 상태 전체를 잃지 않는다.
         trainerName        = c.lenientOptional(String.self, forKey: .trainerName)
         earnedAchievements = c.lenient(Set<String>.self, forKey: .earnedAchievements, default: [])
+        lastOpenedAt       = c.lenientOptional(Date.self, forKey: .lastOpenedAt)
         collectedFinals    = c.lenient(Set<String>.self, forKey: .collectedFinals, default: [])
         language           = c.lenient(AppLanguage.self, forKey: .language, default: .systemDefault)
         inventory          = c.lenient([String: Int].self, forKey: .inventory, default: [:])

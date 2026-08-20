@@ -525,7 +525,9 @@ final class SaveTransferTests: XCTestCase {
                                      "dex", "collectedFinals", "inventory"]
         let deviceLedger: Set<String> = ["installBaselineSet", "claimedTodayTokensByProvider", "lastDate"]
         let accountLedger: Set<String> = ["candyGrantTier", "candyFeatureSeeded"]
-        let devicePreference: Set<String> = ["language"]
+        // lastOpenedAt = 기기 환경설정 부류. "이 기기에서 내가 언제 봤나"라 진행이 아니고,
+        // 남의 기기 시각을 들여오면 "그동안 있었던 일"이 엉뚱한 구간을 요약한다.
+        let devicePreference: Set<String> = ["language", "lastOpenedAt"]
 
         let classified = progress.union(deviceLedger).union(accountLedger).union(devicePreference)
         let actual = Set(Mirror(reflecting: CompanionState()).children.compactMap(\.label))

@@ -463,6 +463,26 @@ struct L {
     // MARK: 일지(Chronicle) — 사건을 문장으로. 저장은 사건만 하고 문장은 읽을 때 만든다.
     var chronicleTitle: String { t("일지", "Chronicle", "日誌", "Crónica") }
 
+    // MARK: 없는 동안 있었던 일
+    var awayTitle: String { t("그동안 있었던 일", "While you were away", "留守のあいだに", "Mientras no estabas") }
+    /// 셋을 한 줄로. 0인 항목은 아예 빼서 "0마리 부화" 같은 말을 만들지 않는다.
+    func awayCounts(hatched: Int, evolved: Int, graduated: Int, shinies: Int) -> String {
+        var parts: [String] = []
+        if hatched > 0 {
+            parts.append(t("부화 \(hatched)", "\(hatched) hatched", "孵化 \(hatched)", "\(hatched) eclosionados"))
+        }
+        if evolved > 0 {
+            parts.append(t("진화 \(evolved)", "\(evolved) evolved", "進化 \(evolved)", "\(evolved) evolucionados"))
+        }
+        if graduated > 0 {
+            parts.append(t("졸업 \(graduated)", "\(graduated) graduated", "卒業 \(graduated)", "\(graduated) graduados"))
+        }
+        if shinies > 0 {
+            parts.append(t("이로치 \(shinies)", "\(shinies) shiny", "色違い \(shinies)", "\(shinies) variocolor"))
+        }
+        return parts.joined(separator: " · ")
+    }
+
     // MARK: 트레이너 카드
     var trainerTab: String { t("트레이너", "Trainer", "トレーナー", "Entrenador") }
     var trainerCardTitle: String { t("트레이너 카드", "Trainer Card", "トレーナーカード", "Tarjeta de entrenador") }

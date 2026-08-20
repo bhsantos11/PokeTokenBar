@@ -7,7 +7,7 @@ Two tracks, tracked in one file because they share the same Core.
   verification on a real panel rather than construction.
 - **Track B — Gameplay.** The game is currently monotonic: usage only goes up, nothing is ever at
   risk, and the only decision is which item to buy. These are the changes that give it choices,
-  rhythm and texture. **G1, G2, G3, G5–G12 are built** (Linux); G4 is still blocked on a design decision. Each carries a macOS gap, since that half cannot be built or verified on this machine.
+  rhythm and texture. **G1, G2, G3, G5–G13 are built** (Linux); G4 is still blocked on a design decision. Each carries a macOS gap, since that half cannot be built or verified on this machine.
 
 Everything below is **buildable** — the two genuinely impossible items (dragging the floating pet,
 anchoring the window to the tray icon) are Wayland restrictions and are recorded at the bottom
@@ -306,6 +306,24 @@ thing the player wanted to see — the change itself — was the thing the banne
       reads as the growth meter going backwards, though that never happens. It now shows available,
       the earned/spent split, the dearest thing in reach, and how far off the cheapest thing is
 - [x] Regression tests (6) for the wallet, including that buying never reduces lifetime tokens
+
+### Phase G13 — While you were away  ✅ built, verified on screen
+A pet that evolves while you work does so unwitnessed: the Chronicle recorded it, but opening the
+panel showed only the end state. Home now says what you missed.
+
+- [x] Counts hatches, evolutions, graduations and shinies since the panel was last opened, as a
+      **query over the Chronicle** — no new counters, for the same reason the achievements have none
+- [x] A headline event chosen by **importance, not recency**: a shiny hatch outranks a graduation
+      outranks an evolution. Newest-first would let a routine evolution bury last night's shiny
+- [x] Opening **freezes the summary before moving the reference point**. The other order makes every
+      open report "nothing happened", because the events you just missed fall behind the new point
+- [x] Renames and Box moves are excluded — you did those yourself, so they cannot be missed
+- [x] Nothing to report means no card at all; "nothing happened" is not worth the space
+- [x] First run reports nothing: with no reference point, summarising means replaying the entire
+      history under the heading "while you were away"
+- [x] `lastOpenedAt` is a **device preference**, like the language — importing another machine's save
+      must not make this one summarise a window you did not miss
+- [x] Regression tests (8), including the ordering defect injected and confirmed failing
 
 ### Phase G4 — Trade cards
 `SaveTransfer` already exports, imports, summarises, confirms and sanitises a whole save. A
